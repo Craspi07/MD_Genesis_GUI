@@ -42,7 +42,7 @@ class Engine(str, Enum):
 class SimulationParameters:
     temperature_k: float = 300.0
     n_steps: int = 1_000_000
-    timestep_fs: float = 10.0  # AICG2+/HPS CG timestep is in the ~10 fs range; see # VERIFY note in control_file.py
+    timestep_fs: float = 10.0  # matches mdgenesis.org tutorial 11.1's confirmed 0.010 ps CG timestep (see resources/templates/_common_sections.j2, DECISIONS.md)
     output_frequency: int = 1000
     langevin_friction: float = 0.01
     box_size_nm: Optional[float] = None

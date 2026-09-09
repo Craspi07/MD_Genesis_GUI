@@ -1,12 +1,27 @@
 """Builds genesis_cg_tool command lines and post-processes its output.
 
-Every command/flag here is either verified against the accessible
-genesis_cg_tool wiki pages (Command-Line-Arguments, File-formats — see
-DECISIONS.md for exactly what was fetched and when) or explicitly marked
-`verified=False` with a `# VERIFY` note when it could not be confirmed
-because mdgenesis.org was unreachable from this dev environment. The GUI
+Re-confirmed 2026-09-09 with live access to both the genesis_cg_tool wiki
+(Command-Line-Arguments, File-formats, Home) and mdgenesis.org — see
+DECISIONS.md for exactly what was fetched. Every command/flag here is
+either verified against those pages or explicitly marked `verified=False`
+with a `# VERIFY` note when no real doc source covers it. The GUI
 (page_parameters.py / tab_files.py) surfaces `verified=False` as a visible
 warning rather than silently trusting it — see CLAUDE.md.
+
+Confirmed this pass, superseding the earlier network-blocked session:
+- No HPS/KH flag exists on aa_2_cg.jl itself, and no flag exists for
+  sequence-only input or for generating N copies / a slab box (still
+  true with full docs access — this is now a confirmed absence, not
+  just "not found while blocked").
+- The full flag list is longer than previously known: --use-safe-dihedral,
+  --3spn-use-5-phos, --3spn-param, --cgRNA-phosphate-Go, --pwmcos-ns,
+  --pwmcos-ns-ene, --patch, --test-local-only were not seen before.
+- The genesis_cg_tool wiki Home page states aa_2_cg.jl requires "an
+  all-(heavy)-atom PDB file for a protein" — a CA-only trace (which is
+  all `generate_extended_chain_pdb` below builds) is explicitly *not*
+  sufficient. This was previously an open question; it is now a
+  confirmed, known limitation of the HPS/sequence-only path, not an
+  unconfirmed possibility. See that function's docstring.
 """
 from __future__ import annotations
 
@@ -61,13 +76,18 @@ def generate_extended_chain_pdb(sequence: str, chain_id: str = "A") -> str:
     sequence, so it can be fed through the same aa_2_cg.jl pipeline used
     for real structures.
 
-    # VERIFY: could not confirm from the accessible docs whether
-    genesis_cg_tool expects a full backbone (N/CA/C/O + sidechain atoms)
-    or tolerates a CA-only trace for its AICG2+/CG mapping. This produces
-    a CA-only trace, which is the minimum most CA-based CG mappings need;
-    if the real tool requires more atoms this must be extended before
-    relying on it for a real run. Confirm against
-    mdgenesis.org/tutorials/genesis_tutorial_11.2_2022/ before use.
+    CONFIRMED KNOWN LIMITATION (2026-09-09, genesis_cg_tool wiki Home
+    page): aa_2_cg.jl requires "an all-(heavy)-atom PDB file for a
+    protein" as input. A CA-only trace — which is all this function
+    builds — is therefore *not* sufficient; this is no longer an open
+    question but a confirmed gap. Building a real all-heavy-atom
+    idealized structure (backbone N/C/O plus per-residue sidechain
+    rotamers) is a substantially larger feature than this pass covers, so
+    it hasn't been implemented here — the function still only produces a
+    CA-only trace, and every caller of it (build_hps_sequence_commands
+    below, the sequence-input pipeline in project_creation.py) is still
+    marked `verified=False` / surfaced as a UI warning accordingly. See
+    DECISIONS.md.
     """
     lines: List[str] = []
     x = 0.0
@@ -88,10 +108,16 @@ def build_hps_sequence_commands(sequence: str, output_name: str, extended_pdb_fi
     extended-chain PDB locally, run it through aa_2_cg.jl, then mark the
     full chain as an HPS IDR region in the resulting .itp.
 
-    See DECISIONS.md: no sequence-only or HPS-specific flag was found on
-    aa_2_cg.jl itself; HPS is applied via a `[ cg_IDR_HPS_region ]` block
-    in the .itp instead, which normally annotates part of a structurally-
-    built chain. This whole path is marked unverified.
+    Confirmed 2026-09-09 (full docs access, superseding the earlier
+    network-blocked session): no sequence-only or HPS-specific flag
+    exists on aa_2_cg.jl (genesis_cg_tool wiki: Command-Line-Arguments,
+    the complete flag list). HPS is applied via a `[ cg_IDR_HPS_region ]`
+    block in the .itp instead (genesis_cg_tool wiki: File-formats), which
+    normally annotates part of a structurally-built chain. This whole
+    path is still marked unverified — not because the flag search was
+    incomplete this time, but because step 1's CA-only trace is now a
+    confirmed-insufficient input to step 2 (see
+    generate_extended_chain_pdb's docstring).
     """
     steps: List[CgCommand] = [
         CgCommand(
@@ -99,8 +125,10 @@ def build_hps_sequence_commands(sequence: str, output_name: str, extended_pdb_fi
             command="",
             local_step=True,
             verified=False,
-            citation="No PDB was supplied — # VERIFY: local approximation, "
-            "not a documented genesis_cg_tool workflow.",
+            citation="No PDB was supplied — # VERIFY: local approximation, not a "
+            "documented genesis_cg_tool workflow, and confirmed insufficient as "
+            "input to step 2 (genesis_cg_tool wiki Home page requires an "
+            "all-heavy-atom PDB; this produces CA-only).",
         ),
         CgCommand(
             description="Convert the idealized chain to a CG topology",
@@ -109,16 +137,19 @@ def build_hps_sequence_commands(sequence: str, output_name: str, extended_pdb_fi
                 f"--force-field-protein AICG2+ --cgpdb --output-name {shlex.quote(output_name)}"
             ),
             verified=False,
-            citation="# VERIFY: aa_2_cg.jl has no HPS flag; using --force-field-protein "
-            "AICG2+ as the base topology builder for a fully-disordered chain is unconfirmed.",
+            citation="# VERIFY: aa_2_cg.jl has no HPS flag (confirmed absent from the full "
+            "Command-Line-Arguments list); using --force-field-protein AICG2+ as the base "
+            "topology builder for a fully-disordered chain is unconfirmed, and the input PDB "
+            "itself is confirmed insufficient (CA-only vs. the required all-heavy-atom).",
         ),
         CgCommand(
             description="Mark the full chain as an HPS IDR region in the .itp",
             command="",
             local_step=True,
             verified=False,
-            citation="genesis_cg_tool wiki: File-formats ([ cg_IDR_HPS_region ] directive; "
-            "Dignon et al. PLoS Comput Biol 14(1) e1005941, 2018) — # VERIFY exact block syntax.",
+            citation="genesis_cg_tool wiki: File-formats ([ cg_IDR_HPS_region ] directive, "
+            "confirmed field format \"%10d %10d\\n\" for the start/end residue indices; "
+            "Dignon et al. PLoS Comput Biol 14(1) e1005941, 2018).",
         ),
     ]
     return steps
@@ -128,19 +159,20 @@ def inject_idr_hps_region(itp_text: str, start_residue: int, end_residue: int) -
     """Append a `[ cg_IDR_HPS_region ]` block to an .itp's text, marking
     `start_residue`..`end_residue` (1-indexed, inclusive) as an HPS IDR.
 
-    # VERIFY: the exact directive syntax (field names/order) is inferred
-    from an AI-summarized fetch of the wiki's File-formats page, not the
-    raw page text, since that page could not be fully rendered. Confirm
-    field names against a real genesis_cg_tool output file before trusting
-    this for a production run.
+    Confirmed 2026-09-09 against a live fetch of the genesis_cg_tool wiki's
+    File-formats page: the directive holds two fields, IDR start index
+    and IDR end index, in printf format "%10d %10d\n" (two 10-char
+    right-justified integers separated by a literal space), citing
+    Dignon et al., PLoS Comput Biol 14(1), e1005941 (2018).
     """
     if "[ cg_IDR_HPS_region ]" in itp_text:
         return itp_text
     block = (
-        "\n; # VERIFY: block syntax inferred from genesis_cg_tool wiki summary, not confirmed verbatim\n"
+        "\n; genesis_cg_tool wiki: File-formats (IDR/HPS region directive; "
+        "Dignon et al. PLoS Comput Biol 14(1) e1005941, 2018)\n"
         "[ cg_IDR_HPS_region ]\n"
         "; IDR starting index   IDR ending index\n"
-        f"{start_residue}                     {end_residue}\n"
+        f"{start_residue:>10d} {end_residue:>10d}\n"
     )
     return itp_text.rstrip("\n") + "\n" + block
 
@@ -164,8 +196,9 @@ def build_slab_system(
     """Replicate a single-molecule .gro into an N-copy elongated (slab) box
     and update the .top `[ molecules ]` count to match.
 
-    No genesis_cg_tool flag for N-copy/slab generation was found in the
-    accessible docs (see DECISIONS.md), so this is done here with plain
+    Confirmed 2026-09-09 (full docs access): no genesis_cg_tool flag for
+    N-copy/slab generation exists on aa_2_cg.jl (re-checked the complete
+    Command-Line-Arguments list), so this is done here with plain
     coordinate/topology math rather than guessed-at GENESIS flags: copies
     are placed on a line spaced `spacing_nm` apart along z, inside a box
     just big enough in x/y to hold the molecule plus `xy_margin_nm`.

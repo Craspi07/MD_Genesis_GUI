@@ -75,6 +75,21 @@ def test_contact_map_mode_variants_use_distinct_output_files(tmp_path: Path):
     avg_filename = write_analysis_control_file("contact_map", project, str(tmp_path), mode="time_averaged")
 
     assert final_filename != avg_filename
+    final_text = (tmp_path / final_filename).read_text()
     avg_text = (tmp_path / avg_filename).read_text()
-    assert "[OPTION]" in avg_text
-    assert "average = YES" in avg_text
+    assert "contact_map_final.txt" in final_text
+    assert "contact_map_time_averaged.txt" in avg_text
+    # No GENESIS analysis tool control file confirmed against
+    # mdgenesis.org has an "average" [OPTION] keyword (see
+    # app/analysis.py's module docstring) -- the fabricated
+    # "average = YES" line has been removed, not just moved.
+    assert "average = YES" not in avg_text
+    assert "[OPTION]" not in avg_text
+
+
+def test_output_keyword_differs_per_tool():
+    assert ANALYSIS_TOOLS["rmsd"][1] == "rmsfile"
+    assert ANALYSIS_TOOLS["rg"][1] == "rgfile"
+    assert ANALYSIS_TOOLS["contact_map"][1] == "outfile"
+    assert ANALYSIS_TOOLS["density"][1] == "mapfile"
+    assert ANALYSIS_TOOLS["qvalue"][1] == "qntfile"

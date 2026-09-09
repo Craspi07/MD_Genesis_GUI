@@ -22,6 +22,9 @@ def _make_project_dir(tmp_path: Path) -> Path:
         timestep_fs=10.0,
         output_frequency=100,
         langevin_friction=0.01,
+        box_x=180.0,
+        box_y=180.0,
+        box_z=180.0,
     )
     write_control_file(config, project.model_type, str(project_dir))
     (project_dir / "myproj.top").write_text("[ molecules ]\nMOL 1\n")

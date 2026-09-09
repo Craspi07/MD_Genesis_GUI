@@ -1,17 +1,20 @@
 {# HPS condensate / slab control file: N copies in an elongated box.
-   # VERIFY throughout (see _common_sections.j2). The N-copy replication
-   itself is done locally by app/cgtool.py (no genesis_cg_tool flag for it
-   was found — see DECISIONS.md), so cgdyn is used here unconditionally
-   since multi-chain systems are its intended use case. #}
+   Partially confirmed 2026-09-09 (see hps_single.j2 and DECISIONS.md for
+   what mdgenesis.org's tutorials do and don't cover -- HPS/IDR is not
+   part of any official GENESIS tutorial). The N-copy replication itself
+   is done locally by app/cgtool.py (no genesis_cg_tool flag for it was
+   found even after this pass's re-check of Command-Line-Arguments -- see
+   DECISIONS.md), so cgdyn is used here unconditionally since multi-chain
+   systems are its intended use case. #}
 {% include "_common_sections.j2" %}
 
 [ENERGY]
-forcefield       = AICG2+   # VERIFY: see hps_single.j2 note on cg_IDR_HPS_region
-electrostatic    = DEBYE_HUCKEL   # VERIFY
-cg_pairlistdist  = 20.0           # VERIFY
+forcefield          = RESIDCG   # confirmed generically across every fetched RESIDCG tutorial (11.1/11.2/11.3); see hps_single.j2 note on [ cg_IDR_HPS_region ]
+electrostatic       = CUTOFF    # confirmed as the only electrostatic keyword value observed in any fetched RESIDCG control file
+cg_pairlistdist_exv = 15.0      # keyword name confirmed (mdgenesis.org tutorial 11.1 pro.inp); value is the tutorial's example, not condensate-specific
 
 [BOUNDARY]
-type    = PBC   # VERIFY: a slab/condensate box needs periodic boundaries
+type       = PBC   # a slab/condensate box needs periodic boundaries; PBC-with-box is the confirmed general mechanism (tutorial 11.1's [BOUNDARY] section), though no tutorial demonstrates a multi-copy slab specifically
 box_size_x = {{ config.box_x }}
 box_size_y = {{ config.box_y }}
 box_size_z = {{ config.box_z }}
