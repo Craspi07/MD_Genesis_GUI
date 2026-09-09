@@ -1,0 +1,12 @@
+{# Protein-DNA control file: AICG2+ (protein) + 3SPN.2C (DNA). Advanced /
+   marked unverified in the UI — # VERIFY throughout, see
+   _common_sections.j2 and DECISIONS.md. #}
+{% include "_common_sections.j2" %}
+
+[ENERGY]
+forcefield       = AICG2+   # VERIFY: combined protein+DNA CG runs may require a different/combined forcefield value; genesis_cg_tool wiki confirms --force-field-DNA 3SPN.2C exists as a CG-tool flag but the control-file side is unconfirmed
+electrostatic    = DEBYE_HUCKEL   # VERIFY: DNA phosphate charges need explicit electrostatics
+cg_pairlistdist  = 20.0           # VERIFY
+
+[BOUNDARY]
+type = NOBC   # VERIFY

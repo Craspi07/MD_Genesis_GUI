@@ -1,0 +1,35 @@
+{
+  "_verify_note": "Defaults are placeholders pending confirmation against mdgenesis.org tutorials 11.1-11.3, which were unreachable this session (network egress blocked to mdgenesis.org — see DECISIONS.md). Treat as starting points, not confirmed tutorial values.",
+  "aicg2p": {
+    "temperature_k": 300.0,
+    "timestep_fs": 10.0,
+    "n_steps": 1000000,
+    "output_frequency": 1000,
+    "langevin_friction": 0.01
+  },
+  "hps_single": {
+    "temperature_k": 300.0,
+    "timestep_fs": 10.0,
+    "n_steps": 1000000,
+    "output_frequency": 1000,
+    "langevin_friction": 0.01
+  },
+  "hps_condensate": {
+    "temperature_k": 300.0,
+    "timestep_fs": 10.0,
+    "n_steps": 5000000,
+    "output_frequency": 5000,
+    "langevin_friction": 0.01,
+    "n_copies": 50,
+    "box_x_nm": 20.0,
+    "box_y_nm": 20.0,
+    "box_z_nm": 200.0
+  },
+  "protein_dna": {
+    "temperature_k": 300.0,
+    "timestep_fs": 10.0,
+    "n_steps": 1000000,
+    "output_frequency": 1000,
+    "langevin_friction": 0.01
+  }
+}

@@ -96,10 +96,16 @@ class MainWindow(QMainWindow):
 
     # -- actions -------------------------------------------------------
     def _on_new_project(self) -> None:
+        from PyQt5.QtWidgets import QDialog
         from ui.wizard_new_project import NewProjectWizard
+        from app.project_creation import local_directory_for
 
         wizard = NewProjectWizard(self.settings, self)
-        wizard.exec_()
+        if wizard.exec_() == QDialog.Accepted:
+            name = wizard.review_page.name_edit.text().strip()
+            if name:
+                self.settings.add_recent_project(local_directory_for(self.settings, name))
+                self.settings.save()
 
     def _on_health_check(self) -> None:
         from ui.dialog_settings import SettingsDialog

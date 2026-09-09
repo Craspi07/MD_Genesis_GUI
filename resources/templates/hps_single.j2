@@ -1,0 +1,14 @@
+{# HPS single-chain (disordered protein / IDR) control file.
+   # VERIFY throughout — see _common_sections.j2 and DECISIONS.md: the HPS
+   model is applied via a [ cg_IDR_HPS_region ] block in the .itp
+   (genesis_cg_tool wiki: File-formats), not via a distinct ENERGY
+   forcefield keyword, but that keyword's expected value here is unconfirmed. #}
+{% include "_common_sections.j2" %}
+
+[ENERGY]
+forcefield       = AICG2+   # VERIFY: base topology forcefield; the .itp's cg_IDR_HPS_region block is what actually switches disordered residues to the HPS potential (Dignon et al. 2018) — unconfirmed keyword pairing
+electrostatic    = DEBYE_HUCKEL   # VERIFY: HPS models commonly use Debye-Huckel electrostatics for charged residues
+cg_pairlistdist  = 20.0           # VERIFY
+
+[BOUNDARY]
+type = NOBC   # VERIFY: single-chain IDR run without periodic boundaries

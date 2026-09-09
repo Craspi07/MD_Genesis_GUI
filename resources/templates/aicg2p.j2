@@ -1,0 +1,12 @@
+{# AICG2+ folded-protein control file. See _common_sections.j2 for the
+   shared # VERIFY notice — nothing below has been confirmed against a
+   live fetch of mdgenesis.org this session either. #}
+{% include "_common_sections.j2" %}
+
+[ENERGY]
+forcefield       = AICG2+   {# genesis_cg_tool wiki: Command-Line-Arguments confirms AICG2+ as a valid --force-field-protein value; the control-file keyword name/value pairing itself is # VERIFY #}
+electrostatic    = CUTOFF   # VERIFY
+cg_pairlistdist  = 20.0     # VERIFY: CG nonbonded pairlist cutoff (Angstrom)
+
+[BOUNDARY]
+type = NOBC   # VERIFY: single-chain AICG2+ tutorials typically run without periodic boundaries

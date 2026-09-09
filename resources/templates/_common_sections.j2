@@ -1,0 +1,34 @@
+{# Shared INI sections used by every GENESIS CG control-file template.
+   Every keyword below is marked # VERIFY: this session could not reach
+   mdgenesis.org (blocked by network egress — see DECISIONS.md) to confirm
+   exact keyword names/values against the live docs. Re-verify against
+   mdgenesis.org/docs/usage/ and the relevant tutorial before a real run. #}
+[INPUT]
+grotopfile = {{ config.top_file }}   # VERIFY: GROMACS-style topology input keyword name
+grocrdfile = {{ config.gro_file }}   # VERIFY: GROMACS-style coordinate input keyword name
+{% if config.restart_file -%}
+rstfile    = {{ config.restart_file }}   # VERIFY: restart input keyword name
+{%- endif %}
+
+[OUTPUT]
+dcdfile = {{ config.output_prefix }}.dcd   # VERIFY
+rstfile = {{ config.output_prefix }}.rst   # VERIFY
+logfile = {{ config.output_prefix }}.log   # VERIFY (some engines write to stdout instead; run.log captures that)
+
+[DYNAMICS]
+integrator     = VVER_CG                    # VERIFY: velocity-Verlet variant used for CG dynamics
+nsteps         = {{ config.n_steps }}
+timestep       = {{ "%.4f"|format(config.timestep_fs / 1000.0) }}   # VERIFY: GENESIS timestep is in ps; converted from {{ config.timestep_fs }} fs
+eneout_period  = {{ config.output_frequency }}   # VERIFY
+crdout_period  = {{ config.output_frequency }}   # VERIFY
+rstout_period  = {{ config.output_frequency }}   # VERIFY
+nbupdate_period = 20                         # VERIFY: neighbor list update frequency
+
+[CONSTRAINTS]
+rigid_bond = NO   # VERIFY: CG models typically integrate bonded terms explicitly rather than constraining them
+
+[ENSEMBLE]
+ensemble    = {{ config.ensemble }}          # VERIFY
+tpcontrol   = LANGEVIN                       # VERIFY: thermostat used in the CG tutorials
+temperature = {{ config.temperature_k }}
+gamma_t     = {{ config.langevin_friction }}   # VERIFY: Langevin friction coefficient keyword name
