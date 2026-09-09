@@ -126,6 +126,7 @@ class MainWindow(QMainWindow):
     def open_project(self, project: Project, local_directory: str) -> None:
         from ui.tab_files import FilesTab
         from ui.tab_run import RunTab
+        from ui.tab_analysis import AnalysisTab
 
         self.current_project = project
         self.current_project_dir = local_directory
@@ -138,6 +139,9 @@ class MainWindow(QMainWindow):
 
         self.run_tab = RunTab(project, local_directory, self.settings)
         self.tabs.addTab(self.run_tab, "Run")
+
+        self.analysis_tab = AnalysisTab(project, local_directory, self.settings)
+        self.tabs.addTab(self.analysis_tab, "Analysis")
 
         self.project_tree.clear()
         root = QTreeWidgetItem([project.name])
