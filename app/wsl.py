@@ -165,6 +165,21 @@ class WslBridge:
         Long jobs must redirect to a file and be tailed (see runner.py)."""
         return AsyncCommand(self, command, parent=parent)
 
+    # -- distro discovery ---------------------------------------------------
+    def list_distros(self) -> List[str]:
+        """Parse `wsl.exe -l -v` into a list of installed distro names."""
+        result = self.run_management(["-l", "-v"])
+        if not result.ok:
+            return []
+        names: List[str] = []
+        for line in result.stdout.splitlines():
+            line = line.strip().lstrip("*").strip()
+            if not line or line.upper().startswith("NAME"):
+                continue
+            name = line.split()[0]
+            names.append(name)
+        return names
+
     # -- health check --------------------------------------------------------
     def health_check(self) -> List[HealthCheckItem]:
         items: List[HealthCheckItem] = []

@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from PyQt5.QtCore import QCoreApplication, QEventLoop, QTimer
+from PyQt5.QtCore import QEventLoop, QTimer
 
 from app.wsl import WslBridge, decode_wsl_output
 
@@ -19,12 +19,6 @@ FAKE_WSL = str(Path(__file__).parent / "fixtures" / "fake_wsl.py")
 @pytest.fixture
 def bridge() -> WslBridge:
     return WslBridge(distro="Ubuntu-24.04", wsl_exe=FAKE_WSL)
-
-
-@pytest.fixture(scope="session", autouse=True)
-def qapp():
-    app = QCoreApplication.instance() or QCoreApplication(sys.argv)
-    yield app
 
 
 # -- decoding -----------------------------------------------------------
@@ -111,6 +105,11 @@ def test_command_with_dollar_and_parens_not_expanded_by_us(bridge: WslBridge):
     result = bridge.run("echo $(( 2 + 2 ))")
     assert result.ok
     assert result.stdout.strip() == "4"
+
+
+# -- distro discovery -------------------------------------------------------
+def test_list_distros(bridge: WslBridge):
+    assert bridge.list_distros() == ["Ubuntu-24.04"]
 
 
 # -- health_check ----------------------------------------------------------
