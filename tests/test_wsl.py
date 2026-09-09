@@ -4,8 +4,6 @@ hosts, so these tests exercise argv construction, quoting, and decoding
 without a real WSL install.
 """
 import os
-import sys
-import tempfile
 from pathlib import Path
 
 import pytest

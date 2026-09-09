@@ -3,7 +3,6 @@ from pathlib import Path
 from app.log_parser import LogRecord
 from app.project import Project
 from app.settings import Settings
-from app.runner import RunSummary
 from ui.tab_run import RunTab
 
 

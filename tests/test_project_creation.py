@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.project import Project, ModelType, InputMode
+from app.project import Project, InputMode
 from app.project_creation import (
     create_project_files,
     build_cg_commands,

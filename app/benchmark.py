@@ -11,7 +11,7 @@ from typing import List, Optional
 
 from app.control_file import ControlFileConfig, write_control_file
 from app.log_parser import GenesisLogParser
-from app.project import Project, ResourceConfig, Engine
+from app.project import Project, ResourceConfig
 from app.runner import build_wrapper_script
 from app.settings import Settings
 from app.wsl import WslBridge

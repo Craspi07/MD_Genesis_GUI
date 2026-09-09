@@ -4,7 +4,7 @@ Plotly/WebEngine.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Sequence
+from typing import Dict, Sequence
 
 import matplotlib
 

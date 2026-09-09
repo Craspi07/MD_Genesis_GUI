@@ -11,7 +11,6 @@ from PyQt5.QtWidgets import (
     QButtonGroup,
     QLabel,
     QGroupBox,
-    QFrame,
 )
 
 from app.project import ModelType

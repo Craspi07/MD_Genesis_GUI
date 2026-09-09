@@ -22,7 +22,6 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 
-from app.control_file import write_control_file
 from app.project import Project
 
 # Files the wizard/runner generates and knows how to regenerate. Anything

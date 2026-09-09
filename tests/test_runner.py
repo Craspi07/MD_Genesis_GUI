@@ -4,8 +4,6 @@ from pathlib import Path
 from typing import List
 
 import pytest
-from PyQt5.QtCore import QEventLoop, QTimer
-
 from app.project import Project, ResourceConfig, Engine
 from app.settings import Settings
 from app.runner import (

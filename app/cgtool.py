@@ -10,8 +10,6 @@ warning rather than silently trusting it — see CLAUDE.md.
 """
 from __future__ import annotations
 
-import math
-import re
 import shlex
 from dataclasses import dataclass
 from typing import List, Tuple
@@ -182,9 +180,7 @@ def build_slab_system(
     title = lines[0]
     n_atoms = int(lines[1].strip())
     atom_lines = lines[2 : 2 + n_atoms]
-    box_line = lines[2 + n_atoms]
-    _orig_box = [float(v) for v in box_line.split()]
-
+    _ = lines[2 + n_atoms]  # validates a box line is present; the box itself is recomputed below
     coords = []
     for line in atom_lines:
         x, y, z = float(line[20:28]), float(line[28:36]), float(line[36:44])

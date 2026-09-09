@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import pytest
 from PyQt5.QtWidgets import QMessageBox
 
 from app.project import Project

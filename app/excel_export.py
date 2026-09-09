@@ -4,7 +4,7 @@ Summary sheet, via openpyxl per CLAUDE.md (no other spreadsheet lib).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import numpy as np
 from openpyxl import Workbook

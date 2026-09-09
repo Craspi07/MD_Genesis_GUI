@@ -13,12 +13,13 @@ by checking whether that PGID is still alive).
 from __future__ import annotations
 
 import shlex
+import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
-from app.log_parser import GenesisLogParser, LogRecord, detect_slot_error, detect_error_lines
+from app.log_parser import GenesisLogParser, detect_slot_error, detect_error_lines
 from app.project import Project, ResourceConfig
 from app.settings import Settings
 from app.wsl import WslBridge
@@ -107,8 +108,6 @@ class SimulationRunner(QObject):
 
     # -- lifecycle -----------------------------------------------------------
     def start(self) -> None:
-        import time
-
         script = build_wrapper_script(self.project.resources, self._settings())
         self.bridge.run(f"cd {self.project.directory} && {script}")
         self._offset = 0
@@ -206,8 +205,6 @@ class SimulationRunner(QObject):
 
     # -- summary -----------------------------------------------------------
     def summary(self) -> Optional[RunSummary]:
-        import time
-
         if self._start_time is None:
             return None
         wall = max(time.time() - self._start_time, 1e-9)

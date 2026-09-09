@@ -4,7 +4,6 @@ to Excel, and optionally hand the trajectory off to VMD.
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -18,7 +17,6 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QLabel,
     QFileDialog,
-    QMessageBox,
 )
 
 from app.analysis import (
