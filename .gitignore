@@ -9,4 +9,5 @@ dist/
 .vscode/
 .idea/
 *.log
+!tests/fixtures/*.log
 genesis_projects/

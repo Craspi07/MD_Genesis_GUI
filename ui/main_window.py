@@ -88,9 +88,15 @@ class MainWindow(QMainWindow):
         file_menu.addAction(quit_action)
 
         run_menu: QMenu = menubar.addMenu("&Run")
-        run_action = QAction("&Run Simulation", self)
-        run_action.setShortcut("F5")
-        run_menu.addAction(run_action)
+        self.run_action = QAction("&Run Simulation", self)
+        self.run_action.setShortcut("F5")
+        self.run_action.triggered.connect(self._on_run_shortcut)
+        run_menu.addAction(self.run_action)
+
+        self.stop_action = QAction("&Stop Simulation", self)
+        self.stop_action.setShortcut("Esc")
+        self.stop_action.triggered.connect(self._on_stop_shortcut)
+        run_menu.addAction(self.stop_action)
 
         tools_menu: QMenu = menubar.addMenu("&Tools")
         health_check = QAction("&Health Check...", self)
@@ -119,6 +125,7 @@ class MainWindow(QMainWindow):
 
     def open_project(self, project: Project, local_directory: str) -> None:
         from ui.tab_files import FilesTab
+        from ui.tab_run import RunTab
 
         self.current_project = project
         self.current_project_dir = local_directory
@@ -129,10 +136,21 @@ class MainWindow(QMainWindow):
         self.files_tab = FilesTab(project, local_directory)
         self.tabs.addTab(self.files_tab, "Files")
 
+        self.run_tab = RunTab(project, local_directory, self.settings)
+        self.tabs.addTab(self.run_tab, "Run")
+
         self.project_tree.clear()
         root = QTreeWidgetItem([project.name])
         self.project_tree.addTopLevelItem(root)
         root.setExpanded(True)
+
+    def _on_run_shortcut(self) -> None:
+        if hasattr(self, "run_tab") and self.run_tab.start_button.isEnabled():
+            self.run_tab._on_start()
+
+    def _on_stop_shortcut(self) -> None:
+        if hasattr(self, "run_tab") and self.run_tab.stop_button.isEnabled():
+            self.run_tab._on_stop()
 
     def _on_health_check(self) -> None:
         from ui.dialog_settings import SettingsDialog

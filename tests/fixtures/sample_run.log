@@ -1,0 +1,8 @@
+GENESIS: a Molecular Dynamics Simulator
+Set random seed = 12345
+Reading grotopfile...
+Reading grocrdfile...
+INFO:       STEP       TIME   TOTAL_ENE   POTENTIAL_ENE   KINETIC_ENE   TEMPERATURE   NATIVE_CONTACT   CG_EXV
+INFO:          0     0.0000    -1234.50       -1345.60        111.10        301.20            0.850     12.40
+INFO:       1000     1.0000    -1235.10       -1346.05        110.95        300.80            0.845     12.35
+INFO:       2000     2.0000    -1236.40       -1347.20        110.80        300.10            0.840     12.30
