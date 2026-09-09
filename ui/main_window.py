@@ -98,10 +98,19 @@ class MainWindow(QMainWindow):
         self.stop_action.triggered.connect(self._on_stop_shortcut)
         run_menu.addAction(self.stop_action)
 
+        run_menu.addSeparator()
+        queue_action = QAction("&Queue Projects...", self)
+        queue_action.triggered.connect(self._on_queue)
+        run_menu.addAction(queue_action)
+
         tools_menu: QMenu = menubar.addMenu("&Tools")
         health_check = QAction("&Health Check...", self)
         health_check.triggered.connect(self._on_health_check)
         tools_menu.addAction(health_check)
+
+        benchmark_action = QAction("&Benchmark...", self)
+        benchmark_action.triggered.connect(self._on_benchmark)
+        tools_menu.addAction(benchmark_action)
 
     # -- actions -------------------------------------------------------
     def _on_new_project(self) -> None:
@@ -160,6 +169,20 @@ class MainWindow(QMainWindow):
         from ui.dialog_settings import SettingsDialog
 
         dialog = SettingsDialog(self.settings, self)
+        dialog.exec_()
+
+    def _on_benchmark(self) -> None:
+        if self.current_project is None or self.current_project_dir is None:
+            return
+        from ui.dialog_benchmark import BenchmarkDialog
+
+        dialog = BenchmarkDialog(self.current_project, self.current_project_dir, self.settings, self)
+        dialog.exec_()
+
+    def _on_queue(self) -> None:
+        from ui.dialog_queue import QueueDialog
+
+        dialog = QueueDialog(self.settings, self.settings.recent_projects, self)
         dialog.exec_()
 
     # -- layout persistence --------------------------------------------
