@@ -202,6 +202,17 @@ def build_slab_system(
     coordinate/topology math rather than guessed-at GENESIS flags: copies
     are placed on a line spaced `spacing_nm` apart along z, inside a box
     just big enough in x/y to hold the molecule plus `xy_margin_nm`.
+
+    genesis_cg_tool wiki: File-formats confirms .gro atom lines have a
+    fixed 20-character prefix (resnum/resname/atomname/atomnum, each 5
+    chars) but "free-style formatting" for the coordinates after that --
+    i.e. NOT rigid 8-char columns like legacy GROMACS .gro. The
+    coordinates are parsed by splitting the remainder of the line on
+    whitespace (see _parse_gro_xyz), not by fixed-width slicing; a real
+    genesis_cg_tool .gro file whose coordinate spacing doesn't happen to
+    line up with 8-char boundaries previously raised "could not convert
+    string to float" here (fixed-width slicing grabbed a chunk spanning
+    two numbers, e.g. "0 0.00").
     """
     if n_copies < 1:
         raise ValueError("n_copies must be >= 1")
@@ -214,10 +225,7 @@ def build_slab_system(
     n_atoms = int(lines[1].strip())
     atom_lines = lines[2 : 2 + n_atoms]
     _ = lines[2 + n_atoms]  # validates a box line is present; the box itself is recomputed below
-    coords = []
-    for line in atom_lines:
-        x, y, z = float(line[20:28]), float(line[28:36]), float(line[36:44])
-        coords.append((x, y, z))
+    coords = [_parse_gro_xyz(line) for line in atom_lines]
     xs = [c[0] for c in coords]
     ys = [c[1] for c in coords]
     zs = [c[2] for c in coords]
@@ -234,16 +242,14 @@ def build_slab_system(
     for copy_index in range(n_copies):
         z_offset = spacing_nm * copy_index
         resnum_offset = copy_index * _residue_count(atom_lines)
-        for line in atom_lines:
+        for line, (x, y, z) in zip(atom_lines, coords):
             resnum = int(line[0:5]) + resnum_offset
             resname = line[5:10]
             atomname = line[10:15]
-            x = float(line[20:28])
-            y = float(line[28:36])
-            z = float(line[36:44]) + z_offset
+            z = z + z_offset
             new_lines.append(
                 f"{resnum % 100000:>5}{resname}{atomname}{global_atom_index % 100000:>5}"
-                f"{x:>8.3f}{y:>8.3f}{z:>8.3f}"
+                f"{x:>8.3f} {y:>8.3f} {z:>8.3f}"
             )
             global_atom_index += 1
     new_lines.append(f"{box_x:>10.5f}{box_y:>10.5f}{box_z:>10.5f}")
@@ -251,6 +257,20 @@ def build_slab_system(
 
     new_top = set_molecule_count_in_top(top_text, n_copies)
     return new_gro, new_top
+
+
+def _parse_gro_xyz(line: str) -> Tuple[float, float, float]:
+    """Parse the x/y/z coordinates from a genesis_cg_tool .gro atom line.
+
+    The first 20 characters are a fixed-width prefix (resnum/resname/
+    atomname/atomnum); everything after that is "free-style formatting"
+    per the genesis_cg_tool wiki (File-formats) -- whitespace-separated,
+    not fixed 8-char columns. Splitting on whitespace instead of slicing
+    fixed columns is required for real tool output; see build_slab_system's
+    docstring for why the old fixed-width slicing broke.
+    """
+    x, y, z = (float(v) for v in line[20:].split()[:3])
+    return x, y, z
 
 
 def _residue_count(atom_lines: List[str]) -> int:

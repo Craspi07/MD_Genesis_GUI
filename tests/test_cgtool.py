@@ -54,7 +54,12 @@ def test_inject_idr_hps_region_adds_block_once():
 
 
 def _gro_atom_line(resnum, resname, atomname, atomnum, x, y, z):
-    return f"{resnum:>5}{resname:<5}{atomname:>5}{atomnum:>5}{x:>8.3f}{y:>8.3f}{z:>8.3f}"
+    # genesis_cg_tool's real .gro output uses "free-style formatting" for
+    # coordinates after the fixed 20-char prefix (wiki: File-formats), not
+    # rigid 8-char columns -- a single space separator (rather than
+    # exactly-aligned 8.3f fields) reflects that and would have caught the
+    # fixed-width-slicing bug this test file now regression-tests below.
+    return f"{resnum:>5}{resname:<5}{atomname:>5}{atomnum:>5} {x:.3f} {y:.3f} {z:.3f}"
 
 
 def _sample_gro():
@@ -93,3 +98,24 @@ def test_build_slab_system_replicates_atoms_and_box(tmp_path=None):
     box_x, box_y, box_z = [float(v) for v in box_line.split()]
     assert box_z > 5.0 * 2  # spacing * (n_copies - 1) plus margin
     assert "MOL                 3" in top
+
+
+def test_build_slab_system_handles_free_format_coordinate_spacing():
+    """Regression test for "could not convert string to float: '0 0.00'":
+    a real genesis_cg_tool .gro file's coordinate spacing doesn't
+    necessarily line up with rigid 8-char columns (fixed 20-char prefix,
+    then free-style formatting per the wiki's File-formats page). This
+    line's coordinates use 1 decimal place and single-space separators --
+    slicing line[20:28]/[28:36]/[36:44] on it grabs a chunk spanning two
+    numbers and fails float(); splitting on whitespace after the prefix
+    does not.
+    """
+    gro = (
+        "test molecule\n"
+        "2\n"
+        "    1MOL     CA    1 0.0 0.0 0.0\n"
+        "    1MOL     CB    2 1.0 0.0 0.0\n"
+        "   3.00000   3.00000   3.00000\n"
+    )
+    gro_out, _top = build_slab_system(gro, _sample_top(), n_copies=2, spacing_nm=5.0, xy_margin_nm=10.0)
+    assert gro_out.splitlines()[1].strip() == "4"

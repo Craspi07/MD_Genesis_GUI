@@ -2,6 +2,43 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-09 — Two real-hardware bugs found during first local install
+
+The user's first real Windows/WSL2 install (following this README) surfaced
+two bugs that no amount of doc-verification would have caught, since both
+only show up against real installed software:
+
+1. **`build_slab_system` (app/cgtool.py) crashed on a real genesis_cg_tool
+   `.gro` file with `could not convert string to float: '0 0.00'`.** The
+   function assumed legacy GROMACS-style rigid 8-character columns for
+   x/y/z (`line[20:28]`/`[28:36]`/`[36:44]`). The genesis_cg_tool wiki's
+   File-formats page — fetched in the entry below, but not acted on at the
+   time — explicitly documents a fixed 20-character prefix
+   (resnum/resname/atomname/atomnum) followed by "free-style formatting"
+   for coordinates, i.e. NOT fixed columns. On a real file whose spacing
+   didn't happen to land on 8-char boundaries, the fixed slice grabbed a
+   chunk spanning two numbers. Fixed by parsing coordinates as
+   whitespace-separated tokens after the 20-char prefix
+   (`_parse_gro_xyz`), matching the documented format. This only affects
+   `ModelType.HPS_CONDENSATE` projects with `n_copies > 1` (the only
+   caller of `build_slab_system`), which is presumably what the user was
+   creating when they hit it. The test fixtures in `tests/test_cgtool.py`
+   previously used rigid 8-char-aligned coordinates, which happened to
+   parse correctly under either the old or new code and so never would
+   have caught this — updated to free-style spacing, plus a dedicated
+   regression test (`test_build_slab_system_handles_free_format_coordinate_spacing`)
+   using coordinate formatting that specifically breaks the old fixed-slice
+   approach.
+2. **`vmd_path` had no UI control.** `app/settings.py` has had a
+   `vmd_path` field (persisted via `QSettings`) since early on, and
+   `ui/tab_analysis.py`'s "Open in VMD" button error message tells the
+   user to "set the path in Settings" — but no such field ever existed in
+   `ui/dialog_settings.py`'s "Setup & Health Check" dialog. There was
+   genuinely no way to change it short of editing the underlying
+   `QSettings` store (the Windows registry) by hand. Added a "VMD path"
+   row (text field + Browse... file picker) to that dialog, wired to
+   load/save like every other field there.
+
 ## 2026-09-09 — Live mdgenesis.org access: VERIFY markers resolved
 
 This session had live, working access to `mdgenesis.org` (previously

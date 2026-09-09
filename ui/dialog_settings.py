@@ -1,6 +1,7 @@
 """First-run setup + health check dialog (F1)."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import List
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
@@ -18,6 +19,7 @@ from PyQt5.QtWidgets import (
     QHeaderView,
     QDialogButtonBox,
     QGroupBox,
+    QFileDialog,
 )
 from PyQt5.QtGui import QColor
 
@@ -85,6 +87,15 @@ class SettingsDialog(QDialog):
         self.mpi_args_edit = QLineEdit()
         form.addRow("mpirun extra args:", self.mpi_args_edit)
 
+        vmd_row = QHBoxLayout()
+        self.vmd_path_edit = QLineEdit()
+        self.vmd_path_edit.setPlaceholderText(r"C:\Program Files\...\vmd.exe")
+        vmd_row.addWidget(self.vmd_path_edit)
+        self.vmd_browse_button = QPushButton("Browse...")
+        self.vmd_browse_button.clicked.connect(self._on_browse_vmd)
+        vmd_row.addWidget(self.vmd_browse_button)
+        form.addRow("VMD path:", vmd_row)
+
         layout.addWidget(setup_group)
 
         check_group = QGroupBox("Health check")
@@ -116,6 +127,7 @@ class SettingsDialog(QDialog):
         self.distro_combo.setCurrentText(self.settings.distro)
         self.user_edit.setText(self.settings.linux_user)
         self.mpi_args_edit.setText(self.settings.mpi_extra_args)
+        self.vmd_path_edit.setText(self.settings.vmd_path)
 
     # -- actions -------------------------------------------------------------
     def _current_bridge(self) -> WslBridge:
@@ -180,9 +192,18 @@ class SettingsDialog(QDialog):
         self.status_label.setText("All checks passed." if all_ok else "Some checks failed — see table.")
         self.settings.setup_complete = all_ok
 
+    def _on_browse_vmd(self) -> None:
+        start_dir = str(Path(self.vmd_path_edit.text()).parent) if self.vmd_path_edit.text() else ""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Locate vmd.exe", start_dir, "VMD executable (vmd.exe);;All files (*)"
+        )
+        if path:
+            self.vmd_path_edit.setText(path)
+
     def _on_save(self) -> None:
         self.settings.distro = self.distro_combo.currentText().strip() or "Ubuntu-24.04"
         self.settings.linux_user = self.user_edit.text().strip()
         self.settings.mpi_extra_args = self.mpi_args_edit.text().strip() or self.settings.mpi_extra_args
+        self.settings.vmd_path = self.vmd_path_edit.text().strip() or self.settings.vmd_path
         self.settings.save()
         self.accept()
