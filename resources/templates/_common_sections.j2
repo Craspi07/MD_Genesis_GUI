@@ -1,34 +1,42 @@
 {# Shared INI sections used by every GENESIS CG control-file template.
-   Every keyword below is marked # VERIFY: this session could not reach
-   mdgenesis.org (blocked by network egress — see DECISIONS.md) to confirm
-   exact keyword names/values against the live docs. Re-verify against
-   mdgenesis.org/docs/usage/ and the relevant tutorial before a real run. #}
+   Confirmed 2026-09-09 against live fetches of mdgenesis.org/docs/usage/,
+   tutorials 11.1 (AICG2+, pro.inp)/11.2 (3SPN.2C DNA)/11.3 (PWMcos), and
+   the genesis_cg_tool wiki's qval_residcg_analysis example in tutorial
+   11.1 Section 3 (which also confirms grotopfile/grocrdfile as valid
+   [INPUT] keywords for CG-mode *_analysis tools, not just atdyn/cgdyn).
+   See DECISIONS.md for the full citation list. #}
 [INPUT]
-grotopfile = {{ config.top_file }}   # VERIFY: GROMACS-style topology input keyword name
-grocrdfile = {{ config.gro_file }}   # VERIFY: GROMACS-style coordinate input keyword name
+grotopfile = {{ config.top_file }}   # mdgenesis.org tutorial 11.1 pro.inp [INPUT]: "grotopfile = 1PGB_cg.top"
+grocrdfile = {{ config.gro_file }}   # mdgenesis.org tutorial 11.1 pro.inp [INPUT]: "grocrdfile = 1PGB_cg.gro"
 {% if config.restart_file -%}
-rstfile    = {{ config.restart_file }}   # VERIFY: restart input keyword name
+rstfile    = {{ config.restart_file }}   # mdgenesis.org tutorial 11.2 step 2.2 (DNA Hybridization) [INPUT] carries rstfile = dna_md1_melt.rst
 {%- endif %}
 
 [OUTPUT]
-dcdfile = {{ config.output_prefix }}.dcd   # VERIFY
-rstfile = {{ config.output_prefix }}.rst   # VERIFY
-logfile = {{ config.output_prefix }}.log   # VERIFY (some engines write to stdout instead; run.log captures that)
+pdbfile = {{ config.output_prefix }}.pdb   # mdgenesis.org tutorial 11.1 pro.inp [OUTPUT]: "pdbfile = pro_md1.pdb"
+dcdfile = {{ config.output_prefix }}.dcd   # mdgenesis.org tutorial 11.1 pro.inp [OUTPUT]: "dcdfile = pro_md1.dcd"
+rstfile = {{ config.output_prefix }}.rst   # mdgenesis.org tutorial 11.1 pro.inp [OUTPUT]: "rstfile = pro_md1.rst"
+; No `logfile` keyword appears in any fetched GENESIS control file. The
+; tutorial runs atdyn/cgdyn with stdout redirected instead
+; ("atdyn pro.inp > pro_md1.log"), which is exactly what runner.py
+; already does (see CLAUDE.md: never rely on piped stdout for live
+; output — it tails the redirected file). A `logfile =` keyword line was
+; deliberately removed rather than left in as a guessed keyword.
 
 [DYNAMICS]
-integrator     = VVER_CG                    # VERIFY: velocity-Verlet variant used for CG dynamics
+integrator     = VVER_CG                    # confirmed verbatim in every fetched CG tutorial's [DYNAMICS] section (11.1/11.2/11.3)
 nsteps         = {{ config.n_steps }}
-timestep       = {{ "%.4f"|format(config.timestep_fs / 1000.0) }}   # VERIFY: GENESIS timestep is in ps; converted from {{ config.timestep_fs }} fs
-eneout_period  = {{ config.output_frequency }}   # VERIFY
-crdout_period  = {{ config.output_frequency }}   # VERIFY
-rstout_period  = {{ config.output_frequency }}   # VERIFY
-nbupdate_period = 20                         # VERIFY: neighbor list update frequency
+timestep       = {{ "%.4f"|format(config.timestep_fs / 1000.0) }}   # GENESIS CG timestep is in ps (tutorials show timestep = 0.010 for a 10 fs step); converted from {{ config.timestep_fs }} fs
+eneout_period  = {{ config.output_frequency }}   # keyword name confirmed verbatim in tutorials 11.1/11.2
+crdout_period  = {{ config.output_frequency }}   # keyword name confirmed verbatim in tutorials 11.1/11.2
+rstout_period  = {{ config.output_frequency }}   # keyword name confirmed verbatim in tutorials 11.1/11.2
+nbupdate_period = 20                         # confirmed verbatim (name and value 20) in tutorials 11.1/11.2/11.3
 
 [CONSTRAINTS]
-rigid_bond = NO   # VERIFY: CG models typically integrate bonded terms explicitly rather than constraining them
+rigid_bond = NO   # confirmed verbatim: mdgenesis.org tutorial 11.1 pro.inp "[CONSTRAINTS] / rigid_bond = NO # don't apply constraints"
 
 [ENSEMBLE]
-ensemble    = {{ config.ensemble }}          # VERIFY
-tpcontrol   = LANGEVIN                       # VERIFY: thermostat used in the CG tutorials
+ensemble    = {{ config.ensemble }}          # keyword name confirmed; tutorials use NVT
+tpcontrol   = LANGEVIN                       # confirmed verbatim in tutorials 11.1/11.2/11.3
 temperature = {{ config.temperature_k }}
-gamma_t     = {{ config.langevin_friction }}   # VERIFY: Langevin friction coefficient keyword name
+gamma_t     = {{ config.langevin_friction }}   # keyword name confirmed verbatim in tutorials 11.1/11.2/11.3 (value 0.01 in all three)

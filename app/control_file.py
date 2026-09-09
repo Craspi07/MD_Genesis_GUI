@@ -1,10 +1,12 @@
 """Generates GENESIS control files from a typed config via Jinja2
 templates, and supports round-tripping user edits.
 
-See resources/templates/_common_sections.j2 for the full # VERIFY notice:
-this session could not reach mdgenesis.org (network egress blocked — see
-DECISIONS.md), so every keyword is either cited to the genesis_cg_tool
-wiki (the one source that was reachable) or explicitly marked unverified.
+See resources/templates/_common_sections.j2 and the per-model templates
+for citations: as of 2026-09-09 every keyword is either confirmed against
+a live fetch of mdgenesis.org (docs/usage/, tutorials 11.1-11.3) and the
+genesis_cg_tool wiki, or explicitly marked `# VERIFY` where no official
+source covers it (mainly the HPS/IDR model, which has no GENESIS
+tutorial). See DECISIONS.md for the full writeup.
 """
 from __future__ import annotations
 
@@ -55,12 +57,43 @@ def _environment() -> Environment:
     )
 
 
+MODEL_TYPES_REQUIRING_BOX = (ModelType.HPS_CONDENSATE, ModelType.AICG2P)
+# AICG2P needs box_x/y/z too because mdgenesis.org tutorial 11.1's own
+# single-protein (1PGB) example runs under [BOUNDARY] type = PBC with an
+# explicit box, not NOBC as previously assumed — see aicg2p.j2 and
+# DECISIONS.md.
+
+
+# mdgenesis.org tutorial 11.1's own example system (1PGB, 56 residues)
+# uses a 180.0 x 180.0 x 180.0 box; used as the fallback whenever a
+# project has no explicit SimulationParameters.box_size_nm set, for
+# whichever model type needs one (see MODEL_TYPES_REQUIRING_BOX).
+DEFAULT_BOX_SIZE = 180.0
+DEFAULT_CONDENSATE_BOX = (20.0, 20.0, 200.0)
+
+
+def default_box_size(model_type: ModelType, box_size: Optional[float]) -> tuple:
+    """Resolve (box_x, box_y, box_z) for a project, applying the same
+    tutorial-derived fallback used by every ControlFileConfig call site so
+    a project without an explicit box size still renders instead of
+    raising. Returns (None, None, None) for model types that don't need a
+    box at all."""
+    if model_type == ModelType.HPS_CONDENSATE:
+        if box_size is not None:
+            return (box_size, box_size, box_size)
+        return DEFAULT_CONDENSATE_BOX
+    if model_type == ModelType.AICG2P:
+        size = box_size if box_size is not None else DEFAULT_BOX_SIZE
+        return (size, size, size)
+    return (None, None, None)
+
+
 def render_control_file(config: ControlFileConfig, model_type: ModelType) -> str:
     template_name = _TEMPLATE_BY_MODEL[model_type]
-    if model_type == ModelType.HPS_CONDENSATE and (
+    if model_type in MODEL_TYPES_REQUIRING_BOX and (
         config.box_x is None or config.box_y is None or config.box_z is None
     ):
-        raise ValueError("HPS condensate control files require box_x/box_y/box_z")
+        raise ValueError(f"{model_type.value} control files require box_x/box_y/box_z")
     env = _environment()
     template = env.get_template(template_name)
     return template.render(config=config)

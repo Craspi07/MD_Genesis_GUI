@@ -107,11 +107,12 @@ class RunTab(QWidget):
         self._reset_plot_state()
 
     def _on_continue(self) -> None:
-        from app.control_file import ControlFileConfig, write_control_file
+        from app.control_file import ControlFileConfig, default_box_size, write_control_file
 
         rst_name = f"{self.project.name}.rst"
         top_files = list(Path(self.local_directory).glob(f"{self.project.name}*.top"))
         gro_files = list(Path(self.local_directory).glob(f"{self.project.name}*.gro"))
+        box_x, box_y, box_z = default_box_size(self.project.model_type, self.project.parameters.box_size_nm)
         config = ControlFileConfig(
             top_file=top_files[0].name if top_files else f"{self.project.name}.top",
             gro_file=gro_files[0].name if gro_files else f"{self.project.name}.gro",
@@ -122,6 +123,9 @@ class RunTab(QWidget):
             output_frequency=self.project.parameters.output_frequency,
             langevin_friction=self.project.parameters.langevin_friction,
             restart_file=rst_name,
+            box_x=box_x,
+            box_y=box_y,
+            box_z=box_z,
         )
         write_control_file(config, self.project.model_type, self.local_directory, filename="run.inp", force=True)
         self._on_start()

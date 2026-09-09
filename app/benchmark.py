@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import List, Optional
 
-from app.control_file import ControlFileConfig, write_control_file
+from app.control_file import ControlFileConfig, default_box_size, write_control_file
 from app.log_parser import GenesisLogParser
 from app.project import Project, ResourceConfig
 from app.runner import build_wrapper_script
@@ -85,6 +85,7 @@ def _run_one_preset(
     top_name: str,
     gro_name: str,
 ) -> BenchmarkResult:
+    box_x, box_y, box_z = default_box_size(project.model_type, project.parameters.box_size_nm)
     config = ControlFileConfig(
         top_file=top_name,
         gro_file=gro_name,
@@ -94,6 +95,9 @@ def _run_one_preset(
         timestep_fs=project.parameters.timestep_fs,
         output_frequency=max(n_steps // 10, 1),
         langevin_friction=project.parameters.langevin_friction,
+        box_x=box_x,
+        box_y=box_y,
+        box_z=box_z,
     )
     write_control_file(config, project.model_type, str(directory), filename="benchmark.inp", force=True)
 

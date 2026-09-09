@@ -33,11 +33,17 @@ from app.settings import Settings
 from app.wsl import WslBridge
 from ui.widgets.mpl_canvas import MplCanvas
 
+# "density" deliberately excluded: mdgenesis.org's density_analysis example
+# (mdgenesis.org/examples/density_density_analysis/) confirms its real
+# output is a binary CCP4 3D electron-density map (mapfile) plus a .pdb,
+# not the two-column z-profile text this dict used to assume -- see
+# app/analysis.py's module docstring and DECISIONS.md. It's handled
+# separately in _on_analysis_finished rather than through
+# parse_two_column_series, which would fail/garbage-parse binary data.
 SERIES_ANALYSES = {
     "rmsd": ("Frame", "RMSD (nm)"),
     "rg": ("Frame", "Rg (nm)"),
     "qvalue": ("Frame", "Q-value"),
-    "density": ("z (nm)", "Density"),
 }
 
 
@@ -117,7 +123,7 @@ class AnalysisTab(QWidget):
 
     # -- running analyses ----------------------------------------------------
     def _run(self, analysis_type: str, mode: Optional[str] = None) -> None:
-        self.status_label.setText(f"Running {ANALYSIS_TOOLS[analysis_type][2]}...")
+        self.status_label.setText(f"Running {ANALYSIS_TOOLS[analysis_type][3]}...")
         thread = QThread(self)
         worker = AnalysisWorker(self.bridge, analysis_type, self.project, self.local_directory, mode)
         worker.moveToThread(thread)
@@ -133,6 +139,16 @@ class AnalysisTab(QWidget):
             self.status_label.setText(f"{key} failed: {result.log.strip()[-300:]}")
             return
 
+        if analysis_type == "density":
+            # density_analysis writes a binary CCP4 3D map (+ a .pdb), not
+            # a text series -- see SERIES_ANALYSES's comment and
+            # app/analysis.py's module docstring. Nothing here can plot
+            # that, so just point the user at the file.
+            self.status_label.setText(
+                f"{key} complete: wrote {result.output_path} (binary CCP4 map — open in VMD/PyMOL, not plottable here)."
+            )
+            return
+
         text = result.output_path.read_text(errors="replace")
 
         if analysis_type == "contact_map":
@@ -146,7 +162,7 @@ class AnalysisTab(QWidget):
         else:
             x_label, y_label = SERIES_ANALYSES.get(analysis_type, ("Frame", "Value"))
             xs, ys = parse_two_column_series(text)
-            label = ANALYSIS_TOOLS[analysis_type][2]
+            label = ANALYSIS_TOOLS[analysis_type][3]
             self._series_results[key] = AnalysisSeries(label=label, x_label=x_label, y_label=y_label, x=xs, y=ys)
             self.canvas.clear()
             self.canvas.set_series(label, xs, ys)

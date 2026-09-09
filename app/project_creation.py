@@ -21,7 +21,7 @@ from app.cgtool import (
     build_slab_system,
     CgCommand,
 )
-from app.control_file import ControlFileConfig, write_control_file
+from app.control_file import ControlFileConfig, default_box_size, write_control_file
 from app.project import Project, ModelType, InputMode
 from app.settings import Settings
 from app.wsl import WslBridge
@@ -155,6 +155,7 @@ def generate_project_control_file(project: Project, local_directory: str, force:
     top_name = top_files[0].name if top_files else f"{project.name}.top"
     gro_name = gro_files[0].name if gro_files else f"{project.name}.gro"
 
+    box_x, box_y, box_z = default_box_size(project.model_type, project.parameters.box_size_nm)
     config = ControlFileConfig(
         top_file=top_name,
         gro_file=gro_name,
@@ -164,11 +165,8 @@ def generate_project_control_file(project: Project, local_directory: str, force:
         timestep_fs=project.parameters.timestep_fs,
         output_frequency=project.parameters.output_frequency,
         langevin_friction=project.parameters.langevin_friction,
-        box_x=project.parameters.box_size_nm,
-        box_y=project.parameters.box_size_nm,
-        box_z=project.parameters.box_size_nm,
+        box_x=box_x,
+        box_y=box_y,
+        box_z=box_z,
     )
-    if project.model_type == ModelType.HPS_CONDENSATE and config.box_x is None:
-        config.box_x = config.box_y = 20.0
-        config.box_z = 200.0
     return write_control_file(config, project.model_type, local_directory, filename="run.inp", force=force)
