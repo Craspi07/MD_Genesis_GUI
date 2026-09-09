@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 
 from app.settings import Settings
+from app.project import Project
 
 
 class MainWindow(QMainWindow):
@@ -26,6 +27,8 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
 
         self.settings = Settings().load()
+        self.current_project: Project | None = None
+        self.current_project_dir: str | None = None
 
         self._build_project_tree()
         self._build_center_tabs()
@@ -104,8 +107,32 @@ class MainWindow(QMainWindow):
         if wizard.exec_() == QDialog.Accepted:
             name = wizard.review_page.name_edit.text().strip()
             if name:
-                self.settings.add_recent_project(local_directory_for(self.settings, name))
+                local_dir = local_directory_for(self.settings, name)
+                self.settings.add_recent_project(local_dir)
                 self.settings.save()
+                try:
+                    project = Project.load(local_dir)
+                except (OSError, ValueError):
+                    project = None
+                if project is not None:
+                    self.open_project(project, local_dir)
+
+    def open_project(self, project: Project, local_directory: str) -> None:
+        from ui.tab_files import FilesTab
+
+        self.current_project = project
+        self.current_project_dir = local_directory
+
+        while self.tabs.count():
+            self.tabs.removeTab(0)
+
+        self.files_tab = FilesTab(project, local_directory)
+        self.tabs.addTab(self.files_tab, "Files")
+
+        self.project_tree.clear()
+        root = QTreeWidgetItem([project.name])
+        self.project_tree.addTopLevelItem(root)
+        root.setExpanded(True)
 
     def _on_health_check(self) -> None:
         from ui.dialog_settings import SettingsDialog

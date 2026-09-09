@@ -148,7 +148,7 @@ def run_cg_tool_pipeline(
     return CreationResult(True, "CG-tool pipeline completed.", log_text)
 
 
-def generate_project_control_file(project: Project, local_directory: str) -> Path:
+def generate_project_control_file(project: Project, local_directory: str, force: bool = False) -> Path:
     directory = Path(local_directory)
     top_files = list(directory.glob(f"{project.name}*.top"))
     gro_files = list(directory.glob(f"{project.name}*.gro"))
@@ -171,4 +171,4 @@ def generate_project_control_file(project: Project, local_directory: str) -> Pat
     if project.model_type == ModelType.HPS_CONDENSATE and config.box_x is None:
         config.box_x = config.box_y = 20.0
         config.box_z = 200.0
-    return write_control_file(config, project.model_type, local_directory, filename="run.inp")
+    return write_control_file(config, project.model_type, local_directory, filename="run.inp", force=force)
