@@ -168,5 +168,6 @@ def generate_project_control_file(project: Project, local_directory: str, force:
         box_x=box_x,
         box_y=box_y,
         box_z=box_z,
+        engine=project.resources.engine.value,
     )
     return write_control_file(config, project.model_type, local_directory, filename="run.inp", force=force)

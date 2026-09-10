@@ -126,6 +126,7 @@ class RunTab(QWidget):
             box_x=box_x,
             box_y=box_y,
             box_z=box_z,
+            engine=self.project.resources.engine.value,
         )
         write_control_file(config, self.project.model_type, self.local_directory, filename="run.inp", force=True)
         self._on_start()

@@ -24,7 +24,11 @@ rstfile = {{ config.output_prefix }}.rst   # mdgenesis.org tutorial 11.1 pro.inp
 ; deliberately removed rather than left in as a guessed keyword.
 
 [DYNAMICS]
-integrator     = VVER_CG                    # confirmed verbatim in every fetched CG tutorial's [DYNAMICS] section (11.1/11.2/11.3)
+{% if config.engine == "cgdyn" -%}
+integrator     = VVER                       # CORRECTED 2026-09-10: a real installed GENESIS 2.1.6 cgdyn rejected "VVER_CG" ("Unsupported string: VVER_CG") -- cgdyn's own `-h ctrl_all` template confirms the accepted values are exactly [LEAP,VVER], no CG-suffixed variant. See DECISIONS.md.
+{% else -%}
+integrator     = VVER_CG                    # confirmed verbatim in mdgenesis.org tutorial 11.1's pro.inp, which is run on atdyn (not cgdyn); the same real install's `atdyn -h ctrl_all` confirms atdyn accepts [LEAP,VVER,VVER_CG] -- VVER_CG is real, just atdyn-only. See DECISIONS.md.
+{% endif -%}
 nsteps         = {{ config.n_steps }}
 timestep       = {{ "%.4f"|format(config.timestep_fs / 1000.0) }}   # GENESIS CG timestep is in ps (tutorials show timestep = 0.010 for a 10 fs step); converted from {{ config.timestep_fs }} fs
 eneout_period  = {{ config.output_frequency }}   # keyword name confirmed verbatim in tutorials 11.1/11.2

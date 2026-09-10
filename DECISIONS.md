@@ -2,6 +2,64 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-10 — `integrator = VVER_CG` was engine-specific, not universal
+
+The benchmark-error-surfacing fix above immediately paid off: the very
+next benchmark run (a condensate/`cgdyn` project) reported real GENESIS's
+own error --
+
+```
+Error in [Dynamics] integrator : Unsupported string: "VVER_CG"
+```
+
+straight from an installed GENESIS 2.1.6 `cgdyn`. First read as "the
+mdgenesis.org-fetched value was simply wrong" (a plausible AI-summarizer
+transcription error), the user then ran `-h ctrl_all` on both real
+installed binaries -- GENESIS's own template-dump feature, which
+`mdgenesis.org/docs/usage/` itself recommends as the source of truth --
+and got a more precise answer:
+
+```
+$ cgdyn -h ctrl_all
+integrator    = LEAP      # [LEAP,VVER]
+
+$ atdyn -h ctrl_all
+integrator    = LEAP      # [LEAP,VVER, VVER_CG]
+```
+
+So `VVER_CG` is real -- it's just **atdyn-only**; `cgdyn` doesn't
+implement it. This lines up exactly with tutorial 11.1's own example,
+which explicitly runs on `atdyn`
+(`mpirun -np 4 .../bin/atdyn pro.inp > pro_md1.log`), not `cgdyn`. The
+actual bug wasn't a wrong value, it was that `_common_sections.j2` is
+`{% include %}`-shared across every model template regardless of which
+engine (`app.project.Engine`, already tracked per-project as
+`resources.engine`) will actually run the file, and it hardcoded a
+single integrator value that happens to be invalid on one of the two
+engines this app can launch.
+
+Fixed by making the choice engine-conditional: added `engine: str =
+"atdyn"` to `ControlFileConfig` (threaded through from
+`project.resources.engine.value` at all three call sites --
+`project_creation.py`, `ui/tab_run.py`'s "Continue" restart,
+`app/benchmark.py`), and `_common_sections.j2` now renders `VVER_CG` for
+atdyn (matching the tutorial, and presumably GENESIS's intended CG
+force-calculation codepath on that binary, which is why plain `VVER` was
+deliberately not chosen as a lowest-common-denominator default) or
+`VVER` for cgdyn.
+
+**Process note for future VERIFY work**: `mdgenesis.org` fetches in this
+session go through `WebFetch`, which has a small/fast model summarize the
+page rather than returning raw text -- worth keeping in mind, though in
+this specific case the fetched value turned out to be correct (for
+atdyn), just applied too broadly. A real installed binary's own error
+message and its `-h ctrl_all` template dump are still the more
+authoritative source when the two disagree, and are now available for
+this project going forward. Every other keyword this session marked
+"confirmed" from mdgenesis.org (see the 2026-09-09 entry below) hasn't
+been re-cross-checked against `-h ctrl_all` output wholesale -- only this
+one was, because it was the reported symptom.
+
 ## 2026-09-10 — Benchmark's "no steps completed" was swallowing the real error
 
 A user's condensate-model benchmark failed with the generic
