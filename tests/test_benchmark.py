@@ -8,6 +8,7 @@ from app.benchmark import (
     estimate_wall_time_seconds,
     load_results,
     BenchmarkResult,
+    _diagnose_empty_log,
 )
 from app.project import Project
 from app.settings import Settings
@@ -99,3 +100,25 @@ def test_estimate_wall_time_seconds():
     results = [BenchmarkResult(8, 2, 8.0, 250.0, True)]
     estimate = estimate_wall_time_seconds(results, n_steps=1_000_000)
     assert estimate == 4000.0
+
+
+def test_diagnose_empty_log_reports_slot_error():
+    log = "mpirun detected that one or more processes exited with...\nnot enough slots available\n"
+    assert "not enough slots" in _diagnose_empty_log(log)
+
+
+def test_diagnose_empty_log_reports_genesis_error():
+    log = "INFO: reading input files...\nERROR: could not open control file\n"
+    assert "GENESIS reported an error" in _diagnose_empty_log(log)
+    assert "could not open control file" in _diagnose_empty_log(log)
+
+
+def test_diagnose_empty_log_reports_blank_log():
+    assert "empty" in _diagnose_empty_log("")
+
+
+def test_diagnose_empty_log_shows_tail_when_unrecognized():
+    log = "some unrecognized GENESIS output\nthat log_parser doesn't match\n"
+    diagnosis = _diagnose_empty_log(log)
+    assert "didn't recognize any step records" in diagnosis
+    assert "unrecognized GENESIS output" in diagnosis
