@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from app.control_file import ControlFileConfig, default_box_size, write_control_file
-from app.log_parser import GenesisLogParser
+from app.log_parser import GenesisLogParser, detect_error_lines, detect_slot_error
 from app.project import Project, ResourceConfig
 from app.runner import build_wrapper_script
 from app.settings import Settings
@@ -120,14 +120,40 @@ def _run_one_preset(
         return BenchmarkResult(ranks, threads, None, None, False, outcome.stderr.strip()[:300] or "command failed")
 
     log_result = bridge.run(f"cat {project.directory}/{log_name} 2>/dev/null")
+    log_text = log_result.stdout
     parser = GenesisLogParser()
-    parser.feed(log_result.stdout)
+    parser.feed(log_text)
     latest = parser.latest()
     if latest is None or wall_time <= 0:
-        return BenchmarkResult(ranks, threads, wall_time, None, False, "no steps completed within the timeout")
+        return BenchmarkResult(ranks, threads, wall_time, None, False, _diagnose_empty_log(log_text))
 
     steps_per_second = latest.step / wall_time
     return BenchmarkResult(ranks, threads, wall_time, steps_per_second, True)
+
+
+def _diagnose_empty_log(log_text: str) -> str:
+    """The wrapper script's own exit code (checked before this is called)
+    doesn't tell you whether GENESIS itself actually ran to completion --
+    `mpirun`/atdyn/cgdyn can exit 0 while the run.log still shows a fatal
+    error, or the log parser (app/log_parser.py) can simply fail to
+    recognize the real GENESIS output format (its column/prefix
+    assumptions were never confirmed against a real run -- see
+    DECISIONS.md). Surface whatever's actually in the log instead of a
+    generic "no steps completed", so a real failure is diagnosable from
+    the benchmark dialog alone.
+    """
+    if not log_text.strip():
+        return "no steps completed within the timeout (benchmark.log was empty)"
+    if detect_slot_error(log_text):
+        return "mpirun: not enough slots (WSL2 MPI oversubscription issue -- see README troubleshooting)"
+    error_lines = detect_error_lines(log_text)
+    if error_lines:
+        return "GENESIS reported an error: " + " | ".join(error_lines[:3])[:300]
+    tail = "\n".join(log_text.strip().splitlines()[-5:])
+    return (
+        "no steps completed within the timeout (log_parser didn't recognize any step "
+        f"records in benchmark.log -- last lines: {tail[:300]})"
+    )
 
 
 def _save_results(directory: Path, results: List[BenchmarkResult]) -> None:

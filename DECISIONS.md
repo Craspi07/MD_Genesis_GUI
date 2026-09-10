@@ -2,6 +2,38 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-10 — Benchmark's "no steps completed" was swallowing the real error
+
+A user's condensate-model benchmark failed with the generic
+`"no steps completed within the timeout"` message from
+`app/benchmark.py::_run_one_preset`. That message only means "the wrapper
+script's shell command exited 0, but `GenesisLogParser` found zero
+parseable step records in `benchmark.log`" -- it says nothing about *why*.
+Two real possibilities, both silently swallowed before this fix:
+1. `mpirun`/`atdyn`/`cgdyn` can exit 0 at the shell level while `run.log`
+   still contains a fatal GENESIS-side error or an MPI "not enough
+   slots" message (a documented common WSL2 issue per the README) --
+   `detect_error_lines`/`detect_slot_error` (`app/log_parser.py`) already
+   existed and are used by the real Run tab, but `benchmark.py` never
+   called them on the log it fetches.
+2. `app/log_parser.py`'s assumed format (`INFO:`-prefixed lines, a header
+   row starting with `STEP`) was flagged `# VERIFY` from the start --
+   "this session could not reach mdgenesis.org... before relying on this
+   for a real run, capture a real run.log ... and adjust." No real
+   GENESIS run had happened yet to check this against until now.
+
+Fixed `_run_one_preset` to call `detect_slot_error`/`detect_error_lines`
+on the fetched log text and report whichever is found, falling back to
+the log's own last few lines (or "was empty") instead of a bare generic
+message when nothing else explains it. This doesn't fix the underlying
+`log_parser.py` format-guess issue by itself -- it makes it
+*diagnosable* from the benchmark dialog directly, which is what's needed
+to find out whether that's actually what's going on for this user's
+report, without them having to manually fetch `benchmark.log` out of WSL.
+Follow-up: once the real log content is known, `app/log_parser.py`'s
+`_HEADER_FIRST_TOKEN`/`_INFO_PREFIX` assumptions should be corrected to
+match it if they're wrong -- that VERIFY marker is still open.
+
 ## 2026-09-09 — Two real-hardware bugs found during first local install
 
 The user's first real Windows/WSL2 install (following this README) surfaced
