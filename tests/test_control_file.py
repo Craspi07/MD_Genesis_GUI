@@ -63,6 +63,19 @@ def test_verify_markers_present():
     assert "VERIFY" in text
 
 
+def test_integrator_is_engine_dependent():
+    # Real installed GENESIS 2.1.6 `cgdyn -h ctrl_all` only accepts
+    # integrator [LEAP,VVER] -- no VVER_CG -- while `atdyn -h ctrl_all`
+    # accepts [LEAP,VVER,VVER_CG]. A shared control-file section can't
+    # hardcode one value for both engines.
+    cgdyn_text = render_control_file(_config(engine="cgdyn"), ModelType.HPS_SINGLE)
+    integrator_line = next(line for line in cgdyn_text.splitlines() if line.startswith("integrator"))
+    assert integrator_line.split()[2] == "VVER"
+
+    atdyn_text = render_control_file(_aicg2p_config(engine="atdyn"), ModelType.AICG2P)
+    assert "integrator     = VVER_CG" in atdyn_text
+
+
 def test_write_control_file_creates_file(tmp_path: Path):
     path = write_control_file(_aicg2p_config(), ModelType.AICG2P, str(tmp_path), filename="run.inp")
     assert path.exists()

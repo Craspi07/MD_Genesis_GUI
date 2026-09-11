@@ -98,6 +98,7 @@ def _run_one_preset(
         box_x=box_x,
         box_y=box_y,
         box_z=box_z,
+        engine=project.resources.engine.value,
     )
     write_control_file(config, project.model_type, str(directory), filename="benchmark.inp", force=True)
 

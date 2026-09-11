@@ -43,6 +43,13 @@ class ControlFileConfig:
     box_x: Optional[float] = None
     box_y: Optional[float] = None
     box_z: Optional[float] = None
+    engine: str = "atdyn"
+    # Which binary (app.project.Engine.value) will actually run this
+    # control file. Matters because at least one keyword's valid values
+    # differ by engine: confirmed 2026-09-10 against real installed
+    # GENESIS 2.1.6 `-h ctrl_all` output that `cgdyn` only accepts
+    # integrator [LEAP,VVER] while `atdyn` additionally accepts
+    # VVER_CG -- see _common_sections.j2 and DECISIONS.md.
 
 
 def _environment() -> Environment:
