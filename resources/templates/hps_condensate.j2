@@ -1,20 +1,21 @@
-{# HPS condensate / slab control file: N copies in an elongated box.
-   Partially confirmed 2026-09-09 (see hps_single.j2 and DECISIONS.md for
-   what mdgenesis.org's tutorials do and don't cover -- HPS/IDR is not
-   part of any official GENESIS tutorial). The N-copy replication itself
-   is done locally by app/cgtool.py (no genesis_cg_tool flag for it was
-   found even after this pass's re-check of Command-Line-Arguments -- see
-   DECISIONS.md), so cgdyn is used here unconditionally since multi-chain
-   systems are its intended use case. #}
+{# HPS condensate/slab control file: N copies in an elongated box.
+   [ENERGY] confirmed against tutorial 11.4 (FUS, multi-chain step,
+   fus_120.inp); box example also from that step (180 x 180 x 1800).
+   See DECISIONS.md. #}
 {% include "_common_sections.j2" %}
 
 [ENERGY]
-forcefield          = RESIDCG   # confirmed generically across every fetched RESIDCG tutorial (11.1/11.2/11.3); see hps_single.j2 note on [ cg_IDR_HPS_region ]
-electrostatic       = CUTOFF    # confirmed as the only electrostatic keyword value observed in any fetched RESIDCG control file
-cg_pairlistdist_exv = 15.0      # keyword name confirmed (mdgenesis.org tutorial 11.1 pro.inp); value is the tutorial's example, not condensate-specific
+forcefield            = RESIDCG   # tutorial 11.4 fus_120.inp
+electrostatic         = CUTOFF    # tutorial 11.4 fus_120.inp
+cg_cutoffdist_ele     = 52.0      # tutorial 11.4 fus_120.inp
+cg_cutoffdist_126     = 39.0      # tutorial 11.4 fus_120.inp
+cg_pairlistdist_ele   = 57.0      # tutorial 11.4 fus_120.inp
+cg_pairlistdist_126   = 44.0      # tutorial 11.4 fus_120.inp
+cg_sol_ionic_strength = 0.15      # tutorial 11.4 fus_120.inp
+cg_IDR_HPS_epsilon    = 0.2       # tutorial 11.4 fus_120.inp
 
 [BOUNDARY]
-type       = PBC   # a slab/condensate box needs periodic boundaries; PBC-with-box is the confirmed general mechanism (tutorial 11.1's [BOUNDARY] section), though no tutorial demonstrates a multi-copy slab specifically
-box_size_x = {{ config.box_x }}
+type       = PBC   # tutorial 11.4 fus_120.inp
+box_size_x = {{ config.box_x }}   # tutorial example: 180.0 x 180.0 x 1800.0 slab
 box_size_y = {{ config.box_y }}
 box_size_z = {{ config.box_z }}

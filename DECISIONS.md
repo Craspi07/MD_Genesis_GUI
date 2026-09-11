@@ -2,6 +2,129 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-11 — Three more real-run bugs: CRLF/`;`, missing `param/`, HPS keywords
+
+### 1. Generated `.inp` files had CRLF line endings and `;` comment lines
+
+A real installed GENESIS 2.1.6 failed to parse a generated control file
+with `Unknown parameter: [output] ";..."`. Two independent bugs combined
+to cause it:
+
+- **CRLF line endings.** This GUI runs as a native Windows process (see
+  CLAUDE.md/README). `pathlib.Path.write_text()`'s default newline
+  handling translates every `\n` in the string to `os.linesep` on write
+  -- `\r\n` on Windows -- regardless of the fact that the target file
+  lives on the Linux side via `\\wsl$`. Every `write_text()` call
+  producing a GENESIS/genesis_cg_tool-consumed file was silently emitting
+  CRLF.
+- **`;` full-line comments in `.inp` files.** `_common_sections.j2` and
+  `aicg2p.j2` used `;`-prefixed full-line comments (a habit carried over
+  from GROMACS `.top`/`.itp` convention, which genesis_cg_tool's own
+  output legitimately uses `;` for). GENESIS's own `.inp` control-file
+  parser only recognizes `#`. Every fetched tutorial control file used
+  `#` exclusively -- this was an unforced, uncited departure introduced
+  during template authoring, not something ever confirmed as valid.
+
+Fixed both: added `app/text_io.py` with `write_generated_text()` (forces
+`newline="\n"`, strips to ASCII-only -- see below) for every fully
+app-generated GENESIS-consumed file, and `write_user_text()` (LF-only,
+no ASCII stripping) for the Files tab's user-hand-edited-file save path,
+since that content isn't ours to silently alter. Every `;`-comment line
+in `.inp`-producing code (the templates; `app/analysis.py`'s control-file
+writer had one too, in the density-tool fallback branch) was converted to
+`#`. `.itp`/`.top`/`.gro` writes (genesis_cg_tool's own GROMACS-style
+output, `app/cgtool.py`/`app/project_creation.py`) now also go through
+`write_generated_text` for the LF/ASCII fix, but keep their `;` comments
+as-is -- that's the correct GROMACS convention for those file types, not
+a bug.
+
+**Also moved long design-rationale comments out of generated files.**
+Every template previously carried multi-sentence citation prose inline
+(e.g. `# mdgenesis.org tutorial 11.1 pro.inp [ENERGY]: "forcefield =
+RESIDCG # Residue-level CG models" -- AICG2+ itself is selected when
+building the topology via...`). Per the user's explicit ask, these are
+now short single-line tags (`# tutorial 11.1 pro.inp`); the full
+rationale for each now lives only in DECISIONS.md (this file and the
+2026-09-09/2026-09-10 entries below). Shorter lines are also strictly
+safer against the same class of parser fragility this whole bug was
+about.
+
+**New test**: `test_generated_control_files_have_no_crlf_or_semicolon_comments`
+and `test_write_control_file_writes_lf_and_ascii_only` in
+`tests/test_control_file.py`, plus `tests/test_text_io.py` for the
+helper functions directly.
+
+### 2. Project creation never copied `genesis_cg_tool`'s `param/` directory
+
+genesis_cg_tool's generated `.top` file `#include`s `./param/*.itp`
+relative to the run directory (jobs are launched with `cd
+{project.directory} && ...`). Nothing ever put a `param/` directory next
+to a project's `.top` file -- every real simulation would have failed to
+resolve those includes the moment it got past the control-file parsing
+bug above. Added `copy_cg_tool_param()` (`app/project_creation.py`),
+called from `run_cg_tool_pipeline` after the CG-tool commands and
+HPS/slab post-processing, doing `cp -r ~/genesis_cg_tool/param/.
+{project.directory}/param/`; a failure here now fails project creation
+with a clear message rather than silently producing a project that can't
+actually run. Also added a "genesis_cg_tool/param present" row to
+`WslBridge.health_check()` (checked at the global/pre-project-creation
+level, alongside the existing `aa_2_cg.jl --help` check, since that's
+where every other environment-prerequisite check lives -- there's no
+per-project health-check mechanism in this codebase to hook into instead;
+flagging this interpretation explicitly in case a per-project check was
+actually intended).
+
+### 3. HPS `[ENERGY]`/`[BOUNDARY]` corrected against tutorial 11.4 (FUS)
+
+The user cited "tutorial 18.4" for a verified single-chain FUS `[ENERGY]`
+block; no such tutorial exists (`mdgenesis.org`'s highest-numbered
+tutorial is 16.3). Cross-checked and found the real one:
+**tutorial 11.4**, "Coarse-grained simulation of FUS condensation with
+HPS model" (`genesis_tutorial_11.4_2022`) -- a citation-number slip, not
+a content error; every keyword/value the user gave matches this tutorial
+exactly, independently re-fetched and confirmed word-for-word:
+
+```
+[ENERGY]
+forcefield = RESIDCG
+electrostatic = CUTOFF
+cg_cutoffdist_ele = 52.0
+cg_cutoffdist_126 = 39.0
+cg_pairlistdist_ele = 57.0
+cg_pairlistdist_126 = 44.0
+cg_sol_ionic_strength = 0.15
+cg_IDR_HPS_epsilon = 0.2
+```
+
+Single-chain step (`pro.inp`): `[BOUNDARY] type = NOBC` -- confirmed,
+the earlier `# VERIFY` on this is now resolved and removed from
+`hps_single.j2`. Multi-chain/condensate step (`fus_120.inp`):
+`[BOUNDARY] type = PBC` with `box_size_x/y/z = 180.0 / 180.0 / 1800.0` --
+applied the same `[ENERGY]` block to `hps_condensate.j2` too (the
+force-field parameters don't depend on chain count, only the boundary
+does), and corrected `DEFAULT_CONDENSATE_BOX` in `app/control_file.py`
+from an earlier unverified `(20.0, 20.0, 200.0)` guess to this real
+example's `(180.0, 180.0, 1800.0)`.
+
+**Milestone**: as of this fix, every control-file template keyword is
+confirmed against either a real mdgenesis.org tutorial or a real
+installed GENESIS's `-h ctrl_all` output -- no `.j2` template has a
+remaining `# VERIFY` marker (`test_no_verify_markers_remain`,
+`tests/test_control_file.py`). Remaining open `# VERIFY` items live
+elsewhere: `app/cgtool.py`'s sequence-only/HPS path (confirmed-insufficient
+CA-only PDB input, see the 2026-09-09 entry below) and `app/analysis.py`
+(grotopfile/grocrdfile inferred rather than directly witnessed for
+rmsd/rg/density/distmat).
+
+**New finding, not acted on**: tutorial 11.4's own condensate example
+(`fus_120.inp`) runs on `atdyn`, not `cgdyn`, contradicting this app's
+`ui/page_resources.py` auto-pick logic ("cgdyn otherwise/always for
+condensate" per README). Not changed here -- it wasn't part of what was
+asked, and the engine-conditional integrator fix (2026-09-10 entry below)
+already means either engine renders a valid control file regardless of
+which one gets picked. Worth a deliberate look if condensate runs keep
+surfacing engine-specific issues.
+
 ## 2026-09-10 — `integrator = VVER_CG` was engine-specific, not universal
 
 The benchmark-error-surfacing fix above immediately paid off: the very

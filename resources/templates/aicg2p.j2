@@ -1,22 +1,13 @@
-{# AICG2+ folded-protein control file. Confirmed 2026-09-09 against
-   mdgenesis.org tutorial 11.1 (genesis_tutorial_11.1_2022, protein G /
-   1PGB, pro.inp) and the genesis_cg_tool wiki's Command-Line-Arguments
-   page. See _common_sections.j2 for the shared-section citations and
-   DECISIONS.md for the full writeup. #}
+{# AICG2+ folded-protein control file. See DECISIONS.md for citations. #}
 {% include "_common_sections.j2" %}
 
 [ENERGY]
-forcefield          = RESIDCG   # mdgenesis.org tutorial 11.1 pro.inp [ENERGY]: "forcefield = RESIDCG # Residue-level CG models" -- AICG2+ itself is selected when building the topology via genesis_cg_tool's --force-field-protein AICG2+ (Command-Line-Arguments wiki page), not by this control-file keyword
-electrostatic       = CUTOFF   # mdgenesis.org tutorial 11.1 pro.inp [ENERGY]: "electrostatic = CUTOFF # Debye-Huckel model" (CUTOFF is the keyword value; Debye-Huckel is the electrostatic model GENESIS applies under it)
-cg_pairlistdist_exv = 15.0     # mdgenesis.org tutorial 11.1 pro.inp [ENERGY]: "cg_pairlistdist_exv = 15.0 # Neighbor-list distance"
+forcefield          = RESIDCG   # tutorial 11.1 pro.inp
+electrostatic       = CUTOFF   # tutorial 11.1 pro.inp
+cg_pairlistdist_exv = 15.0     # tutorial 11.1 pro.inp
 
 [BOUNDARY]
-type       = PBC    # mdgenesis.org tutorial 11.1 pro.inp [BOUNDARY]: even this single-chain AICG2+ tutorial uses PBC, not NOBC -- corrected from an earlier unverified NOBC assumption
-box_size_x = {{ config.box_x }}   # tutorial 11.1's own example system (1PGB, 56 residues) uses box_size_x/y/z = 180.0; box size is system-size dependent, so this comes from SimulationParameters.box_size_nm rather than being hardcoded -- size it to your own protein plus padding
+type       = PBC    # tutorial 11.1 pro.inp (not NOBC)
+box_size_x = {{ config.box_x }}   # size to your system; tutorial example is 180.0
 box_size_y = {{ config.box_y }}
 box_size_z = {{ config.box_z }}
-; VERIFY: the tutorial's 180.0 example value reads as Angstrom (180 nm
-; would be absurdly large for a 56-residue protein) but
-; SimulationParameters.box_size_nm's name claims nm; this unit mismatch
-; predates this pass and is logged in DECISIONS.md rather than silently
-; reinterpreted here.

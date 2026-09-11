@@ -1,46 +1,37 @@
-{# Shared INI sections used by every GENESIS CG control-file template.
-   Confirmed 2026-09-09 against live fetches of mdgenesis.org/docs/usage/,
-   tutorials 11.1 (AICG2+, pro.inp)/11.2 (3SPN.2C DNA)/11.3 (PWMcos), and
-   the genesis_cg_tool wiki's qval_residcg_analysis example in tutorial
-   11.1 Section 3 (which also confirms grotopfile/grocrdfile as valid
-   [INPUT] keywords for CG-mode *_analysis tools, not just atdyn/cgdyn).
-   See DECISIONS.md for the full citation list. #}
+{# Shared INI sections for every GENESIS CG control-file template.
+   Citations here are short; full rationale is in DECISIONS.md. Every
+   comment line uses "#" (GENESIS's .inp parser does not accept ";"). #}
 [INPUT]
-grotopfile = {{ config.top_file }}   # mdgenesis.org tutorial 11.1 pro.inp [INPUT]: "grotopfile = 1PGB_cg.top"
-grocrdfile = {{ config.gro_file }}   # mdgenesis.org tutorial 11.1 pro.inp [INPUT]: "grocrdfile = 1PGB_cg.gro"
+grotopfile = {{ config.top_file }}   # tutorial 11.1 pro.inp
+grocrdfile = {{ config.gro_file }}   # tutorial 11.1 pro.inp
 {% if config.restart_file -%}
-rstfile    = {{ config.restart_file }}   # mdgenesis.org tutorial 11.2 step 2.2 (DNA Hybridization) [INPUT] carries rstfile = dna_md1_melt.rst
+rstfile    = {{ config.restart_file }}   # tutorial 11.2 step 2.2
 {%- endif %}
 
 [OUTPUT]
-pdbfile = {{ config.output_prefix }}.pdb   # mdgenesis.org tutorial 11.1 pro.inp [OUTPUT]: "pdbfile = pro_md1.pdb"
-dcdfile = {{ config.output_prefix }}.dcd   # mdgenesis.org tutorial 11.1 pro.inp [OUTPUT]: "dcdfile = pro_md1.dcd"
-rstfile = {{ config.output_prefix }}.rst   # mdgenesis.org tutorial 11.1 pro.inp [OUTPUT]: "rstfile = pro_md1.rst"
-; No `logfile` keyword appears in any fetched GENESIS control file. The
-; tutorial runs atdyn/cgdyn with stdout redirected instead
-; ("atdyn pro.inp > pro_md1.log"), which is exactly what runner.py
-; already does (see CLAUDE.md: never rely on piped stdout for live
-; output — it tails the redirected file). A `logfile =` keyword line was
-; deliberately removed rather than left in as a guessed keyword.
+pdbfile = {{ config.output_prefix }}.pdb   # tutorial 11.1 pro.inp
+dcdfile = {{ config.output_prefix }}.dcd   # tutorial 11.1 pro.inp
+rstfile = {{ config.output_prefix }}.rst   # tutorial 11.1 pro.inp
+# no logfile keyword: GENESIS writes to stdout, redirected by runner.py
 
 [DYNAMICS]
 {% if config.engine == "cgdyn" -%}
-integrator     = VVER                       # CORRECTED 2026-09-10: a real installed GENESIS 2.1.6 cgdyn rejected "VVER_CG" ("Unsupported string: VVER_CG") -- cgdyn's own `-h ctrl_all` template confirms the accepted values are exactly [LEAP,VVER], no CG-suffixed variant. See DECISIONS.md.
+integrator     = VVER                       # cgdyn -h ctrl_all: [LEAP,VVER]
 {% else -%}
-integrator     = VVER_CG                    # confirmed verbatim in mdgenesis.org tutorial 11.1's pro.inp, which is run on atdyn (not cgdyn); the same real install's `atdyn -h ctrl_all` confirms atdyn accepts [LEAP,VVER,VVER_CG] -- VVER_CG is real, just atdyn-only. See DECISIONS.md.
+integrator     = VVER_CG                    # atdyn -h ctrl_all: [LEAP,VVER,VVER_CG]; tutorial 11.1 pro.inp
 {% endif -%}
 nsteps         = {{ config.n_steps }}
-timestep       = {{ "%.4f"|format(config.timestep_fs / 1000.0) }}   # GENESIS CG timestep is in ps (tutorials show timestep = 0.010 for a 10 fs step); converted from {{ config.timestep_fs }} fs
-eneout_period  = {{ config.output_frequency }}   # keyword name confirmed verbatim in tutorials 11.1/11.2
-crdout_period  = {{ config.output_frequency }}   # keyword name confirmed verbatim in tutorials 11.1/11.2
-rstout_period  = {{ config.output_frequency }}   # keyword name confirmed verbatim in tutorials 11.1/11.2
-nbupdate_period = 20                         # confirmed verbatim (name and value 20) in tutorials 11.1/11.2/11.3
+timestep       = {{ "%.4f"|format(config.timestep_fs / 1000.0) }}   # ps; from {{ config.timestep_fs }} fs
+eneout_period  = {{ config.output_frequency }}
+crdout_period  = {{ config.output_frequency }}
+rstout_period  = {{ config.output_frequency }}
+nbupdate_period = 20                         # tutorial 11.1/11.2/11.3
 
 [CONSTRAINTS]
-rigid_bond = NO   # confirmed verbatim: mdgenesis.org tutorial 11.1 pro.inp "[CONSTRAINTS] / rigid_bond = NO # don't apply constraints"
+rigid_bond = NO   # tutorial 11.1 pro.inp
 
 [ENSEMBLE]
-ensemble    = {{ config.ensemble }}          # keyword name confirmed; tutorials use NVT
-tpcontrol   = LANGEVIN                       # confirmed verbatim in tutorials 11.1/11.2/11.3
+ensemble    = {{ config.ensemble }}
+tpcontrol   = LANGEVIN                       # tutorial 11.1/11.2/11.3
 temperature = {{ config.temperature_k }}
-gamma_t     = {{ config.langevin_friction }}   # keyword name confirmed verbatim in tutorials 11.1/11.2/11.3 (value 0.01 in all three)
+gamma_t     = {{ config.langevin_friction }}

@@ -6,6 +6,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from app.text_io import write_user_text
+
 from PyQt5.QtCore import QUrl
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
@@ -126,7 +128,7 @@ class FilesTab(QWidget):
         if self._current_file is None:
             return
         text = self.editor.toPlainText()
-        self._current_file.write_text(text)
+        write_user_text(self._current_file, text)
         filename = self._current_file.name
         if filename not in self.project.files_with_manual_edits:
             self.project.files_with_manual_edits.append(filename)
