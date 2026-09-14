@@ -104,6 +104,16 @@ _ERROR_PATTERNS = [
     re.compile(r"error", re.IGNORECASE),
     re.compile(r"segmentation fault", re.IGNORECASE),
     re.compile(r"mpirun.*(fail|abort)", re.IGNORECASE),
+    # OpenMPI's own abnormal-termination wording doesn't always contain
+    # "error"/"fail"/"abort" on the same line (e.g. "exited on signal 1",
+    # "Exit code:    1", "the job to be terminated") -- confirmed 2026-09-14
+    # from a real benchmark run whose actual GENESIS-side crash reason was
+    # missed by the patterns above and fell through to a generic tail dump.
+    re.compile(r"exited on signal", re.IGNORECASE),
+    re.compile(r"exited with", re.IGNORECASE),
+    re.compile(r"^\s*exit code\s*:", re.IGNORECASE),
+    re.compile(r"job to be terminated", re.IGNORECASE),
+    re.compile(r"non-zero (exit|status)", re.IGNORECASE),
 ]
 
 # MPI "not enough slots" is common under WSL2 (no real network fabric) and

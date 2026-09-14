@@ -149,11 +149,19 @@ def _diagnose_empty_log(log_text: str) -> str:
         return "mpirun: not enough slots (WSL2 MPI oversubscription issue -- see README troubleshooting)"
     error_lines = detect_error_lines(log_text)
     if error_lines:
-        return "GENESIS reported an error: " + " | ".join(error_lines[:3])[:300]
-    tail = "\n".join(log_text.strip().splitlines()[-5:])
+        # The first matched line is often OpenMPI's own "a rank died"
+        # wrapper message, not GENESIS's own reason for the crash --
+        # confirmed 2026-09-14 from a real run where the actual cause
+        # printed a few lines earlier. Include that leading context
+        # instead of just the matched line(s).
+        all_lines = log_text.strip().splitlines()
+        first_idx = all_lines.index(error_lines[0])
+        context = "\n".join(all_lines[max(first_idx - 5, 0) : first_idx + 3])
+        return f"GENESIS reported an error: {context[:500]}"
+    tail = "\n".join(log_text.strip().splitlines()[-15:])
     return (
         "no steps completed within the timeout (log_parser didn't recognize any step "
-        f"records in benchmark.log -- last lines: {tail[:300]})"
+        f"records in benchmark.log -- last lines: {tail[:500]})"
     )
 
 

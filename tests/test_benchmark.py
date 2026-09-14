@@ -117,6 +117,29 @@ def test_diagnose_empty_log_reports_blank_log():
     assert "empty" in _diagnose_empty_log("")
 
 
+def test_diagnose_empty_log_includes_context_before_openmpi_rank_death():
+    # Real 2026-09-14 case: the actual GENESIS crash message contained
+    # none of "error"/"segmentation fault"/"mpirun...(fail|abort)", so it
+    # fell through to a generic tail dump that never showed it. OpenMPI's
+    # own wrapper text ("Exit code: 1", "the job to be terminated") is
+    # what actually matched, several lines after the real cause -- the
+    # diagnosis must pull in that earlier context, not just the matched
+    # line itself.
+    log = (
+        "INFO: STEP 0 ...\n"
+        "Fatal problem in [CONSTRAINTS]: unstable bond length\n"
+        "--------------------------------------------------------------------------\n"
+        "mpirun noticed that process rank 2 with PID 123 on node X exited on signal 6\n"
+        "the job to be terminated. The first process to do so was:\n"
+        "  Process name: [[39631,1],2]\n"
+        "  Exit code:    1\n"
+        "--------------------------------------------------------------------------\n"
+    )
+    diagnosis = _diagnose_empty_log(log)
+    assert "GENESIS reported an error" in diagnosis
+    assert "unstable bond length" in diagnosis
+
+
 def test_diagnose_empty_log_shows_tail_when_unrecognized():
     log = "some unrecognized GENESIS output\nthat log_parser doesn't match\n"
     diagnosis = _diagnose_empty_log(log)
