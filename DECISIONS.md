@@ -2,6 +2,105 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-14 — The sequence-input pipeline was using the wrong tool entirely
+
+Every fix so far this session (VVER_CG, CRLF/`;`, `--use-safe-dihedral`)
+patched a real bug on a pipeline that was, at a deeper level, never the
+right approach to begin with. Asked directly why topology generation
+"isn't working for our case" when the tutorial's own sequence-to-topology
+step works fine by hand, and re-read tutorial 11.4 (FUS condensate, HPS
+model) specifically for how it gets from a bare sequence to a structure:
+
+> "Unlike the normal way to get 'native' information from available PDB
+> structures, we don't have any reference structure for IDRs. Therefore,
+> we will generate a straight initial conformation for the IDR... we use
+> the GENESIS-CG-tool to create an artificial structure and topology
+> files from this sequence:
+> `tools/modeling/protein_artifact/cg_protein_structure_builder.jl`"
+
+This is a **separate, dedicated script** from `aa_2_cg.jl` -- it takes a
+FASTA sequence directly and writes CG topology/coordinate files itself,
+with no atomistic PDB intermediate at all. The app's old sequence
+pipeline (`generate_extended_chain_pdb` + `build_hps_sequence_commands`
++ `inject_idr_hps_region`) instead fabricated a fake CA-only PDB locally
+and pushed it through `aa_2_cg.jl` -- the tool for converting a *real*
+all-heavy-atom structure (confirmed 2026-09-09 from genesis_cg_tool's own
+wiki: a CA-only trace was never sufficient input to it). That workaround
+was invented because this project didn't know the real tool existed, not
+because the real tool doesn't exist. Every `--use-safe-dihedral`-style
+bug found on this path was a real, independently-confirmed fix, but it
+was fixing symptoms on the wrong pipeline.
+
+Also found while confirming this: the condensate/multi-chain step in the
+same tutorial does **not** use `aa_2_cg.jl` or local replication math
+either -- it uses another dedicated tool,
+`tools/modeling/duplication_modeling/duplication_generator.jl`, which
+takes the single-chain `.top`/`.gro` and replicates it via `--nx/--ny/--nz`
+grid dimensions (real example: `--nx 2 --ny 2 --nz 30` for a 120-copy FUS
+droplet). This directly replaces `build_slab_system`, the local Python
+coordinate-math replication this app had implemented for the same
+undocumented-sounding reason ("no genesis_cg_tool flag for this was
+found" -- true of `aa_2_cg.jl`, false of genesis_cg_tool as a whole,
+which ships a purpose-built tool for it).
+
+### What changed (`app/cgtool.py`, `app/project_creation.py`)
+
+Confirmed byte-exact against two independent fetches of tutorial 11.4
+(after the `WebFetch` summarizer's earlier `VVER_CG` slip taught the
+lesson to double-check):
+
+```
+cg_protein_structure_builder.jl -s fus.fasta
+duplication_generator.jl -t fus_cg.top -c fus_single.gro -o fus_cg --nx 2 --ny 2 --nz 30
+```
+
+Both are invoked **without** a `julia` prefix (unlike `aa_2_cg.jl`,
+which the wiki's own examples always show as `julia src/aa_2_cg.jl ...`)
+-- presumably these are directly-executable scripts with their own
+shebang; matched exactly as shown rather than guessed at.
+
+Removed entirely, per the explicit instruction not to leave the old
+workaround in place: `generate_extended_chain_pdb`,
+`build_hps_sequence_commands`, `inject_idr_hps_region`,
+`build_slab_system`, `_parse_gro_xyz`, `_residue_count`,
+`set_molecule_count_in_top`, `CA_CA_DISTANCE_NM/ANGSTROM`,
+`_ONE_TO_THREE`. `build_aicg2p_command` (the real-PDB path) is untouched
+-- it was never the broken piece.
+
+Added: `build_fasta_text` (the `-s` input GENESIS-CG-tool expects,
+confirmed format `>header\nSEQUENCE\n` from the tutorial's own FASTA
+example), `build_structure_builder_command`, `build_duplication_command`.
+`create_project_files` now writes a `.fasta` for sequence-mode input
+instead of a fake `.pdb`. `run_cg_tool_pipeline` no longer has a
+post-hoc "inject HPS region" step (the real tool already writes that
+itself -- the tutorial shows no separate step for it either) or a
+post-hoc "replicate in Python" step; the condensate case now renames the
+single-chain `.gro` out of the way, calls `duplication_generator.jl`,
+then deletes the temporary rename target so later glob-based file lookups
+(`{project.name}*.gro`) can't pick up the stale single-chain file instead
+of the replicated one.
+
+### What's simplified, not fully matched
+
+This app exposes one scalar "copy count" to the user, not the real
+tool's independent `--nx/--ny/--nz` grid. All copies are placed along a
+single axis (`--nx 1 --ny 1 --nz n_copies`) to match the previous
+single-axis "slab" design intent, not the tutorial's own denser 2x2x30
+grid. Exposing nx/ny/nz separately in the wizard UI is a reasonable
+follow-up if a denser/more realistic condensate packing matters, not
+done here since it wasn't asked and would need new UI, not just a
+`cgtool.py` change.
+
+### Still unverified
+
+Whether `cg_protein_structure_builder.jl`'s dihedral output has the same
+`--use-safe-dihedral`-style version sensitivity `aa_2_cg.jl` did --
+it takes no such flag (confirmed: "no ... flags are shown" beyond `-s`
+in the tutorial), so if its output hits an analogous "unsupported
+function type" on this installed GENESIS, there's no flag-based fix
+available the way there was for `aa_2_cg.jl`; would need investigating
+fresh if it comes up.
+
 ## 2026-09-14 — Validate generated control files against `-h ctrl_all` directly
 
 Every bug in this session's real-run debugging (`VVER_CG` on cgdyn, CRLF/

@@ -15,10 +15,9 @@ from typing import List, Optional
 
 from app.cgtool import (
     build_aicg2p_command,
-    build_hps_sequence_commands,
-    generate_extended_chain_pdb,
-    inject_idr_hps_region,
-    build_slab_system,
+    build_structure_builder_command,
+    build_duplication_command,
+    build_fasta_text,
     CgCommand,
 )
 from app.control_file import ControlFileConfig, default_box_size, write_control_file
@@ -66,9 +65,9 @@ def create_project_files(
         shutil.copy(source_pdb_path, dest)
         created.append(dest.name)
     else:
-        pdb_text = generate_extended_chain_pdb(project.sequence)
-        dest = directory / f"{project.name}_extended.pdb"
-        write_generated_text(dest, pdb_text)
+        fasta_text = build_fasta_text(project.sequence, header=project.name)
+        dest = directory / f"{project.name}.fasta"
+        write_generated_text(dest, fasta_text)
         created.append(dest.name)
 
     return created
@@ -77,11 +76,14 @@ def create_project_files(
 def build_cg_commands(project: Project, input_filename: str) -> List[CgCommand]:
     """Pick the right genesis_cg_tool command sequence for this project.
     See app/cgtool.py and DECISIONS.md for what's verified vs. # VERIFY.
+
+    Condensate replication (duplication_generator.jl) isn't included here
+    -- it needs to run after this step's output exists on disk and a
+    local rename in between (see run_cg_tool_pipeline), not as a
+    standalone command string.
     """
     if project.input_mode == InputMode.SEQUENCE:
-        return build_hps_sequence_commands(
-            project.sequence, output_name=project.name, extended_pdb_filename=input_filename
-        )
+        return [build_structure_builder_command(input_filename)]
     return [build_aicg2p_command(input_filename, output_name=project.name)]
 
 
@@ -104,14 +106,14 @@ def run_cg_tool_pipeline(
     local_directory: str,
 ) -> CreationResult:
     """Run the CG-tool command(s) inside WSL (working directory = the
-    project's WSL-side directory), post-process the .itp for HPS/IDR
-    projects, and write a cgtool.log into the project directory (via
+    project's WSL-side directory), replicate into a condensate slab when
+    needed, and write a cgtool.log into the project directory (via
     ordinary local file I/O — local_directory is the same \\wsl$ mount, so
     no extra WSL round-trip is needed for a small text file).
     """
     directory = Path(local_directory)
     input_filename = next(
-        (p.name for p in directory.iterdir() if p.suffix.lower() in (".pdb", ".cif")),
+        (p.name for p in directory.iterdir() if p.suffix.lower() in (".pdb", ".cif", ".fasta")),
         None,
     )
     if input_filename is None:
@@ -139,23 +141,43 @@ def run_cg_tool_pipeline(
                 log_text,
             )
 
-    if project.input_mode == InputMode.SEQUENCE:
-        itp_files = list(directory.glob(f"{project.name}*.itp"))
-        for itp_path in itp_files:
-            text = itp_path.read_text()
-            write_generated_text(itp_path, inject_idr_hps_region(text, 1, len(project.sequence)))
-        log_parts.append(f"$ (local) marked {len(itp_files)} .itp file(s) as HPS IDR region")
-
     if project.model_type == ModelType.HPS_CONDENSATE and project.parameters.n_copies > 1:
         gro_files = list(directory.glob(f"{project.name}*.gro"))
         top_files = list(directory.glob(f"{project.name}*.top"))
         if gro_files and top_files:
-            gro_text = gro_files[0].read_text()
-            top_text = top_files[0].read_text()
-            new_gro, new_top = build_slab_system(gro_text, top_text, project.parameters.n_copies)
-            write_generated_text(gro_files[0], new_gro)
-            write_generated_text(top_files[0], new_top)
-            log_parts.append(f"$ (local) replicated system into {project.parameters.n_copies} copies (slab box)")
+            top_path = top_files[0]
+            gro_path = gro_files[0]
+            single_gro_name = f"{project.name}_single.gro"
+            gro_path.rename(directory / single_gro_name)
+            log_parts.append(f"$ (local) renamed {gro_path.name} -> {single_gro_name}")
+
+            dup_command = build_duplication_command(
+                top_filename=top_path.name,
+                gro_filename=single_gro_name,
+                output_name=top_path.stem,
+                n_copies=project.parameters.n_copies,
+            )
+            log_parts.append(f"$ {dup_command.command}")
+            dup_result = bridge.run(cd + dup_command.command, timeout=600)
+            log_parts.append(dup_result.stdout)
+            if dup_result.stderr:
+                log_parts.append(dup_result.stderr)
+            if not dup_result.ok:
+                log_text = "\n".join(log_parts)
+                (directory / "cgtool.log").write_text(log_text)
+                return CreationResult(
+                    False,
+                    f"CG-tool step failed: {dup_command.description} (exit code {dup_result.returncode})",
+                    log_text,
+                )
+            # duplication_generator.jl writes the replicated .gro under
+            # `output_name` (same stem as top_path, e.g. "myproj_cg.gro"),
+            # leaving both it and the renamed single-chain .gro matching
+            # "{project.name}*.gro" -- remove the now-unneeded single-chain
+            # one so later glob-based lookups (generate_project_control_file)
+            # can't pick up the wrong file.
+            (directory / single_gro_name).unlink(missing_ok=True)
+            log_parts.append(f"$ (local) removed {single_gro_name}")
 
     # genesis_cg_tool's .top #includes ./param/*.itp relative to the run
     # directory -- copy the param/ directory alongside it or GENESIS can't
