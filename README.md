@@ -151,11 +151,15 @@ This hasn't been exercised in this dev environment (no Windows available)
 - **GENESIS control-file and CG-tool exact keywords**: unverified this
   session (see above and `DECISIONS.md`). Re-verify against
   `mdgenesis.org` before a production run.
-- **HPS-from-sequence and condensate/slab generation**: no documented
-  genesis_cg_tool flag exists for either (confirmed from the accessible
-  docs — see `DECISIONS.md`); this codebase implements both with local,
-  fully-tested Python logic instead of guessed-at GENESIS flags, but both
-  paths are flagged unverified in the UI.
+- **HPS-from-sequence and condensate/slab generation**: as of 2026-09-14
+  these use genesis_cg_tool's own dedicated tools --
+  `cg_protein_structure_builder.jl` (sequence -> artificial IDR structure
+  + CG topology) and `duplication_generator.jl` (N-copy slab
+  replication) -- confirmed against mdgenesis.org tutorial 11.4 (FUS/HPS
+  model), replacing an earlier from-scratch Python reimplementation. See
+  `DECISIONS.md` for the full writeup, including one known simplification
+  (copies are placed along a single axis, not the 3D grid the real tool
+  also supports).
 - **End-to-end verification on real hardware**: this dev environment has
   no Windows, no WSL, and no GENESIS install, so nothing here has been run
   against a real simulation. Every module that would normally touch

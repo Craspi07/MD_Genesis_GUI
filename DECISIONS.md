@@ -2,6 +2,193 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-14 — The sequence-input pipeline was using the wrong tool entirely
+
+Every fix so far this session (VVER_CG, CRLF/`;`, `--use-safe-dihedral`)
+patched a real bug on a pipeline that was, at a deeper level, never the
+right approach to begin with. Asked directly why topology generation
+"isn't working for our case" when the tutorial's own sequence-to-topology
+step works fine by hand, and re-read tutorial 11.4 (FUS condensate, HPS
+model) specifically for how it gets from a bare sequence to a structure:
+
+> "Unlike the normal way to get 'native' information from available PDB
+> structures, we don't have any reference structure for IDRs. Therefore,
+> we will generate a straight initial conformation for the IDR... we use
+> the GENESIS-CG-tool to create an artificial structure and topology
+> files from this sequence:
+> `tools/modeling/protein_artifact/cg_protein_structure_builder.jl`"
+
+This is a **separate, dedicated script** from `aa_2_cg.jl` -- it takes a
+FASTA sequence directly and writes CG topology/coordinate files itself,
+with no atomistic PDB intermediate at all. The app's old sequence
+pipeline (`generate_extended_chain_pdb` + `build_hps_sequence_commands`
++ `inject_idr_hps_region`) instead fabricated a fake CA-only PDB locally
+and pushed it through `aa_2_cg.jl` -- the tool for converting a *real*
+all-heavy-atom structure (confirmed 2026-09-09 from genesis_cg_tool's own
+wiki: a CA-only trace was never sufficient input to it). That workaround
+was invented because this project didn't know the real tool existed, not
+because the real tool doesn't exist. Every `--use-safe-dihedral`-style
+bug found on this path was a real, independently-confirmed fix, but it
+was fixing symptoms on the wrong pipeline.
+
+Also found while confirming this: the condensate/multi-chain step in the
+same tutorial does **not** use `aa_2_cg.jl` or local replication math
+either -- it uses another dedicated tool,
+`tools/modeling/duplication_modeling/duplication_generator.jl`, which
+takes the single-chain `.top`/`.gro` and replicates it via `--nx/--ny/--nz`
+grid dimensions (real example: `--nx 2 --ny 2 --nz 30` for a 120-copy FUS
+droplet). This directly replaces `build_slab_system`, the local Python
+coordinate-math replication this app had implemented for the same
+undocumented-sounding reason ("no genesis_cg_tool flag for this was
+found" -- true of `aa_2_cg.jl`, false of genesis_cg_tool as a whole,
+which ships a purpose-built tool for it).
+
+### What changed (`app/cgtool.py`, `app/project_creation.py`)
+
+Confirmed byte-exact against two independent fetches of tutorial 11.4
+(after the `WebFetch` summarizer's earlier `VVER_CG` slip taught the
+lesson to double-check):
+
+```
+cg_protein_structure_builder.jl -s fus.fasta
+duplication_generator.jl -t fus_cg.top -c fus_single.gro -o fus_cg --nx 2 --ny 2 --nz 30
+```
+
+Both are invoked **without** a `julia` prefix (unlike `aa_2_cg.jl`,
+which the wiki's own examples always show as `julia src/aa_2_cg.jl ...`)
+-- presumably these are directly-executable scripts with their own
+shebang; matched exactly as shown rather than guessed at.
+
+Removed entirely, per the explicit instruction not to leave the old
+workaround in place: `generate_extended_chain_pdb`,
+`build_hps_sequence_commands`, `inject_idr_hps_region`,
+`build_slab_system`, `_parse_gro_xyz`, `_residue_count`,
+`set_molecule_count_in_top`, `CA_CA_DISTANCE_NM/ANGSTROM`,
+`_ONE_TO_THREE`. `build_aicg2p_command` (the real-PDB path) is untouched
+-- it was never the broken piece.
+
+Added: `build_fasta_text` (the `-s` input GENESIS-CG-tool expects,
+confirmed format `>header\nSEQUENCE\n` from the tutorial's own FASTA
+example), `build_structure_builder_command`, `build_duplication_command`.
+`create_project_files` now writes a `.fasta` for sequence-mode input
+instead of a fake `.pdb`. `run_cg_tool_pipeline` no longer has a
+post-hoc "inject HPS region" step (the real tool already writes that
+itself -- the tutorial shows no separate step for it either) or a
+post-hoc "replicate in Python" step; the condensate case now renames the
+single-chain `.gro` out of the way, calls `duplication_generator.jl`,
+then deletes the temporary rename target so later glob-based file lookups
+(`{project.name}*.gro`) can't pick up the stale single-chain file instead
+of the replicated one.
+
+### What's simplified, not fully matched
+
+This app exposes one scalar "copy count" to the user, not the real
+tool's independent `--nx/--ny/--nz` grid. All copies are placed along a
+single axis (`--nx 1 --ny 1 --nz n_copies`) to match the previous
+single-axis "slab" design intent, not the tutorial's own denser 2x2x30
+grid. Exposing nx/ny/nz separately in the wizard UI is a reasonable
+follow-up if a denser/more realistic condensate packing matters, not
+done here since it wasn't asked and would need new UI, not just a
+`cgtool.py` change.
+
+### Still unverified
+
+Whether `cg_protein_structure_builder.jl`'s dihedral output has the same
+`--use-safe-dihedral`-style version sensitivity `aa_2_cg.jl` did --
+it takes no such flag (confirmed: "no ... flags are shown" beyond `-s`
+in the tutorial), so if its output hits an analogous "unsupported
+function type" on this installed GENESIS, there's no flag-based fix
+available the way there was for `aa_2_cg.jl`; would need investigating
+fresh if it comes up.
+
+## 2026-09-14 — Validate generated control files against `-h ctrl_all` directly
+
+Every bug in this session's real-run debugging (`VVER_CG` on cgdyn, CRLF/
+`;` comments, `--use-safe-dihedral`) shared a root cause: this app's
+control-file templates were built by reading tutorial pages and wiki
+docs, not by checking against the actual installed GENESIS binary, so
+nothing caught a mismatch until a real run failed. `mdgenesis.org` itself
+recommends `<engine> -h ctrl_all` as the way to get a real template for
+your exact installed version -- this app used that manually, once, to
+debug the integrator bug, but nothing made it a standing check.
+
+Added `app/ctrl_reference.py`: parses `<engine> -h ctrl_all` output into
+`{section: {keyword: allowed_values_or_None}}` (a trailing comment with a
+bracketed comma list, e.g. `# [LEAP,VVER]`, documents allowed values;
+plain-text comments mean "known keyword, unconstrained"), and
+`validate_control_text()` compares a rendered control file's keywords/
+values against it, returning warnings for: a section GENESIS doesn't
+recognize, a keyword GENESIS doesn't recognize within a known section, or
+a value outside a keyword's documented allowed set. `WslBridge.fetch_ctrl_all()`
+runs the actual command. `validate_against_installed_genesis()` chains
+fetch + parse + validate, degrading to a single "could not fetch"
+warning rather than raising if the binary can't be run.
+
+**Proof of value**: `tests/test_ctrl_reference.py` reproduces the actual
+`VVER_CG`-on-cgdyn bug as a direct regression test using the user's real
+pasted `-h ctrl_all` output for both engines -- validating `VVER_CG`
+against the cgdyn reference is flagged; validating the current
+engine-conditional templates against either engine's real reference
+passes cleanly.
+
+**Deliberately advisory, not a gate**: results are warnings surfaced to a
+human (via a new "Validate against GENESIS" button in the Files tab,
+enabled for `run.inp`), not a hard failure blocking project creation or
+saves. This module's own parsing of `-h ctrl_all`'s free-text comments
+could itself be incomplete for a GENESIS version/build this wasn't
+tested against -- false positives are possible, so a human reviews
+rather than the app silently refusing to write a file.
+
+**Scope note**: this only covers the control file (`run.inp`), which is
+what `-h ctrl_all` describes. It does not cover the topology
+(`.top`/`.itp`/`.gro`) -- GENESIS has no equivalent "dump every valid
+topology directive" flag. See the conversation for what's practical
+there instead (in short: no direct equivalent exists; the nearest analog
+is cross-checking `aa_2_cg.jl --help`'s current flag list before invoking
+it, and treating an actual short benchmark run, with the now-improved
+error surfacing, as the closest thing to a topology validator this
+ecosystem has).
+
+## 2026-09-14 — Found it: `--use-safe-dihedral` default writes an unreadable dihedral type
+
+The improved benchmark diagnosis (previous entry) surfaced the real
+GENESIS-side crash reason: `Read_Grotop> [dihedrals] not supported
+function type: 41`. Cross-checked two independent genesis_cg_tool wiki
+pages rather than acting on the number alone:
+
+- **File-formats** documents dihedral function types as original/"safe"
+  pairs: "Type 1 / Safe Type 32", "Type 21 / Safe Type 41", "Type 22 /
+  Safe Type 52" -- type 41 is the numerically-stabilized ("safe") variant
+  of type 21 (a Gaussian dihedral potential), not a mistake or a
+  different potential entirely.
+- **Command-Line-Arguments** documents `aa_2_cg.jl --use-safe-dihedral I`:
+  "0) do nothing; 1) cos^2(k*theta) type (**default**); 2) remove
+  dihedral potentials with large angles; 3) sin^3(k*theta) type." The
+  *default* (1) is what applies the safe transform and writes type 41 --
+  `build_aicg2p_command`/`build_hps_sequence_commands`
+  (`app/cgtool.py`) never passed this flag, so every AICG2+-based
+  topology this app has ever generated (both plain AICG2+ and the
+  HPS/sequence path, which reuses the same command builder for its base
+  topology) used the default and wrote type-41 dihedrals.
+
+This installed GENESIS 2.1.6 rejects type 41 outright, meaning it only
+reads the *original* types. Fixed by adding `--use-safe-dihedral 0` to
+both `aa_2_cg.jl` invocations in `app/cgtool.py` ("do nothing" per the
+flag's own documented semantics -- keeps the original type 21/1/22
+encoding). This affects every model type built from AICG2+'s topology
+builder (AICG2+, HPS single-chain, HPS condensate), not just the
+condensate project this was first hit on.
+
+**Not yet known**: whether `--use-safe-dihedral 0`'s "original" dihedral
+types are physically equivalent to the "safe" ones for this system, or
+whether the "safe" transform exists specifically to avoid a real
+numerical problem (singularities near certain angles, per the
+File-formats page's own framing) that the original type could hit for
+some structures. If a real run later shows energy/force blow-ups or
+`NaN`s that a "safe" dihedral would have prevented, that's the tradeoff
+made here -- getting GENESIS to read the file at all was the immediate
+blocker; revisit if numerical stability becomes the next issue.
+
 ## 2026-09-14 — Benchmark diagnosis still missed a real MPI rank crash
 
 Past the CRLF/param fixes, a benchmark run hit an actual MPI rank death

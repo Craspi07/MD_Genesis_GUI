@@ -139,6 +139,13 @@ class WslBridge:
         path = result.stdout.strip()
         return path or None
 
+    def fetch_ctrl_all(self, engine: str) -> CommandResult:
+        """Run `<engine> -h ctrl_all`, GENESIS's own full-template dump for
+        the exact installed binary. This is the authoritative reference
+        app/ctrl_reference.py validates generated control files against --
+        see DECISIONS.md (2026-09-14, the VVER_CG saga)."""
+        return self.run(f"{shlex.quote(engine)} -h ctrl_all")
+
     # -- log tailing -------------------------------------------------------
     def tail(self, path: str, offset: int = 0) -> TailResult:
         """Read bytes appended to `path` (inside WSL) since byte `offset`.

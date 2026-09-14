@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.project import Project, InputMode
+from app.project import Project, InputMode, ModelType
 from app.project_creation import (
     create_project_files,
     build_cg_commands,
@@ -10,7 +10,7 @@ from app.project_creation import (
     copy_cg_tool_param,
 )
 from app.settings import Settings
-from app.wsl import WslBridge
+from app.wsl import CommandResult, WslBridge
 
 FAKE_WSL = str(Path(__file__).parent / "fixtures" / "fake_wsl.py")
 
@@ -51,8 +51,9 @@ def test_create_project_files_sequence_mode(tmp_path: Path):
         sequence="MKTAYIAKQR",
     )
     created = create_project_files(project, str(project_dir))
-    assert "myidr_extended.pdb" in created
-    assert (project_dir / "myidr_extended.pdb").exists()
+    assert "myidr.fasta" in created
+    assert (project_dir / "myidr.fasta").exists()
+    assert (project_dir / "myidr.fasta").read_text() == ">myidr\nMKTAYIAKQR\n"
 
 
 def test_build_cg_commands_pdb_mode_uses_aicg2p():
@@ -62,13 +63,15 @@ def test_build_cg_commands_pdb_mode_uses_aicg2p():
     assert commands[0].verified
 
 
-def test_build_cg_commands_sequence_mode_uses_hps_pipeline():
+def test_build_cg_commands_sequence_mode_uses_structure_builder():
     project = Project(
         name="p", directory="~/genesis_projects/p", input_mode=InputMode.SEQUENCE, sequence="MKT"
     )
-    commands = build_cg_commands(project, "p_extended.pdb")
-    assert len(commands) == 3
-    assert all(not c.verified for c in commands)
+    commands = build_cg_commands(project, "p.fasta")
+    assert len(commands) == 1
+    assert commands[0].verified
+    assert "cg_protein_structure_builder.jl" in commands[0].command
+    assert "p.fasta" in commands[0].command
 
 
 def test_run_cg_tool_pipeline_reports_failure_when_julia_missing(tmp_path: Path):
@@ -86,6 +89,57 @@ def test_run_cg_tool_pipeline_reports_failure_when_julia_missing(tmp_path: Path)
     assert not result.success
     assert (project_dir / "cgtool.log").exists()
     assert "julia" in result.log or "not found" in result.log.lower()
+
+
+def test_run_cg_tool_pipeline_reports_failure_for_sequence_mode_too(tmp_path: Path):
+    # Regression check for the 2026-09-14 rewrite: sequence-mode input
+    # detection now looks for .fasta (not the old .pdb extended-chain
+    # workaround), and must still fail gracefully when genesis_cg_tool
+    # isn't actually installed here.
+    project_dir = tmp_path / "proj"
+    project = Project(
+        name="myidr", directory="~/genesis_projects/myidr", input_mode=InputMode.SEQUENCE, sequence="MKT"
+    )
+    create_project_files(project, str(project_dir))
+
+    result = run_cg_tool_pipeline(_bridge(), project, str(project_dir))
+
+    assert not result.success
+    assert (project_dir / "cgtool.log").exists()
+
+
+def test_run_cg_tool_pipeline_condensate_renames_and_replicates(tmp_path: Path, monkeypatch):
+    # Exercises the rename -> duplication_generator.jl -> cleanup sequence
+    # directly (app/cgtool.py's build_duplication_command is covered in
+    # isolation by tests/test_cgtool.py) by faking every bridge.run() call
+    # to succeed, since the real tools aren't installed in this dev
+    # environment. Pre-places the .top/.gro that a real
+    # cg_protein_structure_builder.jl run would have produced.
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    project = Project(
+        name="myidr",
+        directory=str(project_dir),
+        input_mode=InputMode.SEQUENCE,
+        sequence="MKT",
+        model_type=ModelType.HPS_CONDENSATE,
+    )
+    project.parameters.n_copies = 3
+    create_project_files(project, str(project_dir))
+    (project_dir / "myidr_cg.top").write_text("[ molecules ]\nMOL 1\n")
+    (project_dir / "myidr_cg.gro").write_text("title\n0\n0.0 0.0 0.0\n")
+
+    bridge = _bridge()
+    monkeypatch.setattr(bridge, "run", lambda *a, **k: CommandResult(0, "", ""))
+
+    result = run_cg_tool_pipeline(bridge, project, str(project_dir))
+
+    assert result.success
+    assert "duplication_generator.jl" in result.log
+    assert (project_dir / "myidr_cg.top").exists()
+    # the temporary rename target must be cleaned up, not left as a second
+    # file matching "myidr*.gro" that a later glob could pick up by mistake
+    assert not (project_dir / "myidr_single.gro").exists()
 
 
 def test_copy_cg_tool_param_succeeds_when_source_exists(tmp_path: Path, monkeypatch):

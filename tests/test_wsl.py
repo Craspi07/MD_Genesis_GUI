@@ -105,6 +105,15 @@ def test_command_with_dollar_and_parens_not_expanded_by_us(bridge: WslBridge):
     assert result.stdout.strip() == "4"
 
 
+# -- ctrl_all reference fetch ------------------------------------------------
+def test_fetch_ctrl_all_reports_failure_when_engine_missing(bridge: WslBridge):
+    # "atdyn"/"cgdyn" aren't installed in this dev environment -- the
+    # command genuinely fails, which is what a caller must handle. See
+    # app/ctrl_reference.py's validate_against_installed_genesis.
+    result = bridge.fetch_ctrl_all("not-a-real-engine")
+    assert not result.ok
+
+
 # -- distro discovery -------------------------------------------------------
 def test_list_distros(bridge: WslBridge):
     assert bridge.list_distros() == ["Ubuntu-24.04"]
