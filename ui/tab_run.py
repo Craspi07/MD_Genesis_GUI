@@ -101,7 +101,10 @@ class RunTab(QWidget):
 
     # -- actions -------------------------------------------------------------
     def _on_start(self) -> None:
-        self.runner.start()
+        self._start_run(is_continuation=False)
+
+    def _start_run(self, is_continuation: bool) -> None:
+        self.runner.start(is_continuation=is_continuation)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self._reset_plot_state()
@@ -129,7 +132,7 @@ class RunTab(QWidget):
             engine=self.project.resources.engine.value,
         )
         write_control_file(config, self.project.model_type, self.local_directory, filename="run.inp", force=True)
-        self._on_start()
+        self._start_run(is_continuation=True)
 
     def _on_stop(self) -> None:
         reply = QMessageBox.question(
@@ -184,9 +187,10 @@ class RunTab(QWidget):
 
     def _on_status_changed(self, status: str) -> None:
         self.status_label.setText(f"Status: {status}")
-        if status == "finished":
+        if status in ("finished", "failed"):
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
+        if status == "finished":
             summary = self.runner.summary()
             if summary:
                 self.summary_label.setText(

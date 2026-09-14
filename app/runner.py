@@ -84,6 +84,12 @@ class SimulationRunner(QObject):
     status_changed = pyqtSignal(str)  # "running" | "finished" | "stopped" | "failed"
     error_detected = pyqtSignal(str)
 
+    # If neither run.pgid nor any run.log growth ever shows up after this
+    # many polls, the launch almost certainly failed before GENESIS wrote
+    # anything at all -- report it instead of polling forever in silence.
+    # See DECISIONS.md, 2026-09-14.
+    MAX_STALLED_POLLS = 5
+
     def __init__(
         self,
         bridge: WslBridge,
@@ -101,22 +107,48 @@ class SimulationRunner(QObject):
         self._pgid: Optional[int] = None
         self._start_time: Optional[float] = None
         self._oversubscribe_retried = False
+        self._stalled_poll_count = 0
 
         self._timer = QTimer(self)
         self._timer.setInterval(poll_interval_ms)
         self._timer.timeout.connect(self.poll)
 
     # -- lifecycle -----------------------------------------------------------
-    def start(self) -> None:
+    def start(self, is_continuation: bool = False) -> None:
+        self._cleanup_previous_outputs(is_continuation=is_continuation)
         script = build_wrapper_script(self.project.resources, self._settings())
         self.bridge.run(f"cd {self.project.directory} && {script}")
         self._offset = 0
         self._start_time = time.time()
+        self._stalled_poll_count = 0
         self.project.last_run_status = "running"
         self.status_changed.emit("running")
         self._timer.start()
         # give the wrapper a moment to write the PGID file before the first poll
         QTimer.singleShot(500, self._read_pgid)
+
+    def _cleanup_previous_outputs(self, is_continuation: bool) -> None:
+        """A fresh start must not collide with a previous attempt's
+        leftover GENESIS-written output files -- GENESIS refuses to
+        silently overwrite an existing restart file ("Open_file> File ...
+        already exists"), confirmed 2026-09-14 from a real benchmark
+        sweep (see DECISIONS.md). Unlike that sweep, a real run's launch
+        is backgrounded (fire-and-forget) and has no synchronous way to
+        surface this crash -- it just sits reporting "running" forever
+        with nothing ever appearing in run.log/run.pgid, which is exactly
+        the "status running, no plot, no log" symptom this fixes.
+
+        `{project.name}.pdb`/`.dcd` are always safe to clear (GENESIS
+        never reads them back as input). `{project.name}.rst` is only
+        cleared for a *fresh* start -- a continuation run needs that
+        exact file as its [INPUT] restart file, and deleting it would
+        destroy the very thing "Continue" is supposed to resume from.
+        """
+        prefix = self.project.name
+        targets = [f"{prefix}.pdb", f"{prefix}.dcd"]
+        if not is_continuation:
+            targets.append(f"{prefix}.rst")
+        self.bridge.run(f"cd {self.project.directory} && rm -f " + " ".join(targets))
 
     def _settings(self) -> Settings:
         # Runner only needs mpi_extra_args/total_cores; constructed lazily
@@ -139,6 +171,7 @@ class SimulationRunner(QObject):
         result = self.bridge.tail(f"{self.project.directory}/{RUN_LOG_NAME}", self._offset)
         self._offset = result.offset
         if result.text:
+            self._stalled_poll_count = 0
             self.raw_output.emit(result.text)
             if detect_slot_error(result.text) and not self._oversubscribe_retried:
                 self._retry_with_oversubscribe()
@@ -149,6 +182,24 @@ class SimulationRunner(QObject):
             records = self.parser.feed(result.text)
             if records:
                 self.new_records.emit(records)
+        elif self._pgid is None:
+            # Nothing has ever appeared in run.log, and run.pgid hasn't
+            # been read yet either -- if this goes on too long the launch
+            # almost certainly failed before GENESIS wrote anything (e.g.
+            # an immediate crash on a leftover output file), not merely a
+            # slow start. Report it instead of sitting at "running"
+            # forever with no plot/log activity to explain why.
+            self._stalled_poll_count += 1
+            if self._stalled_poll_count >= self.MAX_STALLED_POLLS:
+                self._timer.stop()
+                self.project.last_run_status = "failed"
+                self.status_changed.emit("failed")
+                self.error_detected.emit(
+                    "No output appeared and the run's process group was never found -- "
+                    "the job likely failed to start. Check the project folder for a "
+                    "leftover restart file or other error."
+                )
+                return
 
         if self._pgid is not None and not self._process_group_alive():
             self._on_finished()

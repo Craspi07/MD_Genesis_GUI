@@ -2,6 +2,47 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-14 — Run tab could silently sit at "running" with no log/plot
+
+Reported symptom: "the status is running, but there is no plot, no log
+whatsoever seen in GUI." `SimulationRunner.start()` (`app/runner.py`)
+launches the real job backgrounded (`setsid bash -c '...' < /dev/null &`)
+and immediately reports `status_changed("running")` -- there is no
+synchronous way to know whether `mpirun`/GENESIS actually started.
+`poll()` then just tails `run.log` and checks `run.pgid`; if GENESIS
+crashes before writing either (most likely: the exact same "Open_file>
+File ... already exists" crash already proven for benchmark presets
+below, but here against a leftover `{project.name}.rst`/`.pdb`/`.dcd`
+from a previous attempt in the same project directory), both stay empty
+forever and the tab sits at "running" with zero feedback -- matching the
+report exactly.
+
+Two fixes, both in `app/runner.py`:
+
+1. `start(is_continuation=False)` now calls `_cleanup_previous_outputs()`
+   first, which `rm -f`s `{project.name}.pdb`/`.dcd` unconditionally and
+   `{project.name}.rst` only for a *fresh* (non-continuation) start --
+   a continuation run needs its own `.rst` as `[INPUT]`, so cleanup must
+   not destroy the very file "Continue from restart file" resumes from.
+   `ui/tab_run.py` threads `is_continuation` through `_on_start` (False)
+   and `_on_continue` (True) via a shared `_start_run()` helper.
+2. `poll()` now tracks `_stalled_poll_count`: it increments only while
+   *both* `run.log` has produced no new text *and* `run.pgid` has never
+   been read (`self._pgid is None`), and resets to 0 the moment either
+   condition clears. After `MAX_STALLED_POLLS = 5` (~10s at the default
+   2s interval) it stops the timer, sets `last_run_status = "failed"`,
+   and emits an actionable `error_detected` message telling the user to
+   check the project folder for a leftover restart file. `tab_run.py`'s
+   `_on_status_changed` already treated `"failed"` the same as
+   `"finished"` for re-enabling Start/disabling Stop.
+
+Not yet confirmed against the user's actual project directory whether a
+leftover `.rst` is the real root cause here (vs. some other immediate
+launch failure) -- the fix is safe/correct either way (cleanup before a
+fresh start is always correct, and surfacing a stalled launch instead of
+silence is always an improvement), but the specific root cause for this
+report is still unverified.
+
 ## 2026-09-14 — "View structure in VMD" added to the Files tab
 
 The only existing VMD hook (Analysis tab's "Open in VMD") loads the
