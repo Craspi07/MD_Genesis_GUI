@@ -2,6 +2,25 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-14 — "View structure in VMD" added to the Files tab
+
+The only existing VMD hook (Analysis tab's "Open in VMD") loads the
+trajectory (`{project}.dcd`), which only exists after a run. There was no
+way to eyeball the generated structure itself right after project
+creation, before running anything -- a real gap noticed while explaining
+where VMD lives in the GUI.
+
+Added a "View structure in VMD" button to the Files tab's top row
+(`ui/tab_files.py`), independent of the file list selection. It globs
+`{project.name}*.pdb` first, falling back to `{project.name}*.gro` --
+naming differs by which pipeline built it (`cg_protein_structure_
+builder.jl` for sequence input writes `{name}_cg.pdb`; `aa_2_cg.jl`'s
+`--cgpdb` flag for PDB input writes `{name}.pdb`), and `.pdb` is
+preferred since VMD reads it natively without needing to guess
+connectivity. Mirrors the Analysis tab's existing VMD-launch pattern
+(check `settings.vmd_path` exists, `subprocess.Popen`, report failures
+rather than silently doing nothing).
+
 ## 2026-09-14 — Benchmark presets collided on shared output filenames
 
 Real progress worth noting: the 4x4 preset in a benchmark sweep actually

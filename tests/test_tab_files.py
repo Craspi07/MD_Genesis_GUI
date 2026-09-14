@@ -102,3 +102,72 @@ def test_files_tab_save_marks_manual_edit_and_regenerate_clears_it(tmp_path: Pat
     tab._on_regenerate()
     assert "run.inp" not in tab.project.files_with_manual_edits
     assert (project_dir / "run.inp").read_text() != "; hand edited\n"
+
+
+def test_find_structure_file_returns_none_when_absent(tmp_path: Path):
+    project_dir = _make_project_dir(tmp_path)
+    project = Project.load(str(project_dir))
+    tab = FilesTab(project, str(project_dir))
+
+    assert tab._find_structure_file() is None
+
+
+def test_find_structure_file_prefers_pdb_over_gro(tmp_path: Path):
+    project_dir = _make_project_dir(tmp_path)
+    (project_dir / "myproj_cg.gro").write_text("title\n0\n0.0 0.0 0.0\n")
+    (project_dir / "myproj_cg.pdb").write_text("ATOM\n")
+    project = Project.load(str(project_dir))
+    tab = FilesTab(project, str(project_dir))
+
+    assert tab._find_structure_file().name == "myproj_cg.pdb"
+
+
+def test_find_structure_file_falls_back_to_gro(tmp_path: Path):
+    project_dir = _make_project_dir(tmp_path)
+    (project_dir / "myproj_cg.gro").write_text("title\n0\n0.0 0.0 0.0\n")
+    project = Project.load(str(project_dir))
+    tab = FilesTab(project, str(project_dir))
+
+    assert tab._find_structure_file().name == "myproj_cg.gro"
+
+
+def test_view_structure_vmd_reports_missing_vmd(tmp_path: Path):
+    project_dir = _make_project_dir(tmp_path)
+    project = Project.load(str(project_dir))
+    tab = FilesTab(project, str(project_dir))
+    # default Settings().vmd_path is a Windows path that won't exist here
+    tab._on_view_structure_vmd()
+    assert "VMD not found" in tab.structure_status_label.text()
+
+
+def test_view_structure_vmd_reports_missing_structure(tmp_path: Path):
+    project_dir = _make_project_dir(tmp_path)
+    project = Project.load(str(project_dir))
+    tab = FilesTab(project, str(project_dir))
+    fake_vmd = tmp_path / "fake_vmd"
+    fake_vmd.write_text("")
+    tab.settings.vmd_path = str(fake_vmd)
+
+    tab._on_view_structure_vmd()
+
+    assert "No generated structure file" in tab.structure_status_label.text()
+
+
+def test_view_structure_vmd_launches_with_structure(tmp_path: Path, monkeypatch):
+    project_dir = _make_project_dir(tmp_path)
+    (project_dir / "myproj_cg.pdb").write_text("ATOM\n")
+    project = Project.load(str(project_dir))
+    tab = FilesTab(project, str(project_dir))
+    fake_vmd = tmp_path / "fake_vmd"
+    fake_vmd.write_text("")
+    tab.settings.vmd_path = str(fake_vmd)
+
+    launched = {}
+    monkeypatch.setattr(
+        "ui.tab_files.subprocess.Popen", lambda args, **k: launched.__setitem__("args", args)
+    )
+
+    tab._on_view_structure_vmd()
+
+    assert launched["args"] == [str(fake_vmd), str(project_dir / "myproj_cg.pdb")]
+    assert "Launched VMD" in tab.structure_status_label.text()

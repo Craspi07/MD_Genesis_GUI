@@ -3,6 +3,7 @@ a "keep my edits" vs "regenerate" choice (F project-files requirement).
 """
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import List, Optional
 
@@ -72,8 +73,18 @@ class FilesTab(QWidget):
         refresh_button = QPushButton("Refresh")
         refresh_button.clicked.connect(self.refresh)
         top_row.addWidget(refresh_button)
+        view_structure_button = QPushButton("View structure in VMD")
+        view_structure_button.clicked.connect(self._on_view_structure_vmd)
+        view_structure_button.setToolTip(
+            "Opens the generated .pdb/.gro structure in VMD -- no run needed, "
+            "unlike the Analysis tab's 'Open in VMD' (which loads the .dcd trajectory)."
+        )
+        top_row.addWidget(view_structure_button)
         top_row.addStretch(1)
         layout.addLayout(top_row)
+
+        self.structure_status_label = QLabel("")
+        layout.addWidget(self.structure_status_label)
 
         splitter = QSplitter(Qt.Horizontal)
         self.file_list = QListWidget()
@@ -236,3 +247,36 @@ class FilesTab(QWidget):
     # -- misc --------------------------------------------------------------
     def _open_folder(self) -> None:
         QDesktopServices.openUrl(QUrl.fromLocalFile(self.local_directory))
+
+    def _find_structure_file(self) -> Optional[Path]:
+        """Locate the generated structure to view in VMD. Naming differs by
+        pipeline (see DECISIONS.md, 2026-09-14): cg_protein_structure_builder.jl
+        (sequence input) writes "{name}_cg.pdb"; aa_2_cg.jl (PDB input, via
+        --cgpdb) writes "{name}.pdb". A .pdb is preferred since it's a
+        format VMD reads natively without guessing bonds; .gro is the
+        fallback if no .pdb exists yet."""
+        directory = Path(self.local_directory)
+        for pattern in (f"{self.project.name}*.pdb", f"{self.project.name}*.gro"):
+            matches = sorted(directory.glob(pattern))
+            if matches:
+                return matches[0]
+        return None
+
+    def _on_view_structure_vmd(self) -> None:
+        vmd_path = self.settings.vmd_path
+        if not Path(vmd_path).exists():
+            self.structure_status_label.setText(f"VMD not found at {vmd_path}. Set the path in Settings.")
+            return
+
+        structure_path = self._find_structure_file()
+        if structure_path is None:
+            self.structure_status_label.setText(
+                "No generated structure file (.pdb/.gro) found yet -- create the project first."
+            )
+            return
+
+        try:
+            subprocess.Popen([vmd_path, str(structure_path)])
+            self.structure_status_label.setText(f"Launched VMD with {structure_path.name}.")
+        except OSError as exc:
+            self.structure_status_label.setText(f"Could not launch VMD: {exc}")
