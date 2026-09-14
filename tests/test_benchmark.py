@@ -9,6 +9,7 @@ from app.benchmark import (
     load_results,
     BenchmarkResult,
     _diagnose_empty_log,
+    _run_one_preset,
 )
 from app.project import Project
 from app.settings import Settings
@@ -100,6 +101,41 @@ def test_estimate_wall_time_seconds():
     results = [BenchmarkResult(8, 2, 8.0, 250.0, True)]
     estimate = estimate_wall_time_seconds(results, n_steps=1_000_000)
     assert estimate == 4000.0
+
+
+def test_run_one_preset_uses_a_unique_tag_and_cleans_up_first(tmp_path: Path):
+    # Real 2026-09-14 failure: every preset shared a fixed "benchmark"
+    # output prefix, so the second preset in a sweep hit "Open_file> File
+    # benchmark.rst already exists" from the first preset's leftover
+    # restart file. Each preset must get its own filenames, and must
+    # clear its own (possibly stale, from an earlier benchmark run on the
+    # same project) leftovers before running.
+    (tmp_path / "myproj.top").write_text("[ molecules ]\nMOL 1\n")
+    (tmp_path / "myproj.gro").write_text("title\n0\n0.0 0.0 0.0\n")
+    project = Project(name="myproj", directory=str(tmp_path))
+
+    commands = []
+    bridge = _bridge()
+    real_run = bridge.run
+
+    def recording_run(command, *args, **kwargs):
+        commands.append(command)
+        return real_run(command, *args, **kwargs)
+
+    bridge.run = recording_run
+
+    _run_one_preset(bridge, project, tmp_path, _settings(), ranks=4, threads=4, n_steps=100, top_name="myproj.top", gro_name="myproj.gro")
+    _run_one_preset(bridge, project, tmp_path, _settings(), ranks=8, threads=2, n_steps=100, top_name="myproj.top", gro_name="myproj.gro")
+
+    assert (tmp_path / "benchmark_4x4.inp").exists()
+    assert (tmp_path / "benchmark_8x2.inp").exists()
+
+    cleanup_commands = [c for c in commands if "rm -f" in c]
+    assert len(cleanup_commands) == 2
+    assert "benchmark_4x4.rst" in cleanup_commands[0]
+    assert "benchmark_8x2" not in cleanup_commands[0]
+    assert "benchmark_8x2.rst" in cleanup_commands[1]
+    assert "benchmark_4x4" not in cleanup_commands[1]
 
 
 def test_diagnose_empty_log_reports_slot_error():
