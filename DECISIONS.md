@@ -2,6 +2,36 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-14 — Benchmark diagnosis still missed a real MPI rank crash
+
+Past the CRLF/param fixes, a benchmark run hit an actual MPI rank death
+(exit code 1) -- but the diagnosis still only surfaced OpenMPI's generic
+"the job to be terminated... Exit code: 1" wrapper text, not GENESIS's
+own reason for the crash. Two gaps:
+
+1. `_ERROR_PATTERNS` (app/log_parser.py) didn't match OpenMPI's actual
+   wording ("exited on signal", "Exit code:", "the job to be
+   terminated", "non-zero status" -- none contain "error"/"fail"/
+   "abort" on the same line), so `detect_error_lines` found nothing and
+   `_diagnose_empty_log` fell through to a bare last-5-lines tail dump
+   that cut off before reaching the relevant part of the log. Added
+   patterns for this wording.
+2. Even once matched, showing only the matched line(s) isn't enough --
+   OpenMPI's termination summary is itself just a symptom; GENESIS's own
+   crash reason typically prints a few lines *before* it. `_diagnose_empty_log`
+   now includes 5 lines of context before the first match (and the tail
+   fallback grew from 5 to 15 lines / 300 to 500 chars) so the actual
+   cause has a real chance of showing up in the dialog instead of a
+   human having to fetch benchmark.log manually.
+
+Still unresolved: the real root cause of *this* specific rank-2 crash
+isn't known yet -- need the fuller benchmark.log to see what GENESIS
+printed before OpenMPI's summary. Candidates worth checking once seen:
+a `.top`/`.gro` atom-count mismatch, an unresolved `./param/*.itp`
+include (verify the 2026-09-11 `param/` copy fix actually matches the
+`.top`'s real include paths), or a genuine numerical blowup from the
+benchmark's short 2000-step run on a freshly-built topology.
+
 ## 2026-09-11 — Three more real-run bugs: CRLF/`;`, missing `param/`, HPS keywords
 
 ### 1. Generated `.inp` files had CRLF line endings and `;` comment lines
