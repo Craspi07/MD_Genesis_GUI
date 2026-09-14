@@ -18,6 +18,14 @@ def test_build_aicg2p_command_is_verified():
     assert "protein.pdb" in cmd.command
 
 
+def test_build_aicg2p_command_disables_safe_dihedral():
+    # Real installed GENESIS 2.1.6 rejected the "safe" dihedral encoding
+    # (--use-safe-dihedral's default of 1) with "Read_Grotop> [dihedrals]
+    # not supported function type: 41" -- see DECISIONS.md (2026-09-14).
+    cmd = build_aicg2p_command("protein.pdb", "myprot")
+    assert "--use-safe-dihedral 0" in cmd.command
+
+
 def test_build_aicg2p_command_quotes_paths_with_spaces():
     cmd = build_aicg2p_command("my protein.pdb", "out")
     assert "'my protein.pdb'" in cmd.command
@@ -41,6 +49,7 @@ def test_build_hps_sequence_commands_are_unverified():
     assert all(not s.verified for s in steps)
     assert steps[1].local_step is False
     assert "myidr_extended.pdb" in steps[1].command
+    assert "--use-safe-dihedral 0" in steps[1].command
 
 
 def test_inject_idr_hps_region_adds_block_once():

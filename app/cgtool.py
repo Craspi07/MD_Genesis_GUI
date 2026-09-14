@@ -56,17 +56,28 @@ def build_aicg2p_command(pdb_filename: str, output_name: str) -> CgCommand:
 
     `--force-field-protein AICG2+`, `--cgpdb`, and `--output-name` are all
     documented on the genesis_cg_tool wiki's Command-Line-Arguments page.
+
+    `--use-safe-dihedral 0` added 2026-09-14: aa_2_cg.jl's default
+    (--use-safe-dihedral 1, undocumented in the flag itself but confirmed
+    absent here) applies a numerically-stabilized dihedral transform that
+    writes .itp dihedral function type 41 (genesis_cg_tool wiki:
+    File-formats -- "Type 21 / Safe Type 41"). A real installed GENESIS
+    2.1.6 rejected that with "Read_Grotop> [dihedrals] not supported
+    function type: 41". Passing 0 ("do nothing", per Command-Line-Arguments)
+    keeps the original type 21 dihedral encoding, which GENESIS 2.1.6 does
+    read. See DECISIONS.md.
     """
     cmd = (
         f"julia {CG_TOOL_SCRIPT} {shlex.quote(pdb_filename)} "
-        f"--force-field-protein AICG2+ --cgpdb --output-name {shlex.quote(output_name)}"
+        f"--force-field-protein AICG2+ --cgpdb --use-safe-dihedral 0 "
+        f"--output-name {shlex.quote(output_name)}"
     )
     return CgCommand(
         description="Convert PDB to AICG2+ coarse-grained topology",
         command=cmd,
         verified=True,
         citation="genesis_cg_tool wiki: Command-Line-Arguments "
-        "(--force-field-protein, --cgpdb, --output-name)",
+        "(--force-field-protein, --cgpdb, --output-name, --use-safe-dihedral)",
     )
 
 
@@ -134,13 +145,16 @@ def build_hps_sequence_commands(sequence: str, output_name: str, extended_pdb_fi
             description="Convert the idealized chain to a CG topology",
             command=(
                 f"julia {CG_TOOL_SCRIPT} {shlex.quote(extended_pdb_filename)} "
-                f"--force-field-protein AICG2+ --cgpdb --output-name {shlex.quote(output_name)}"
+                f"--force-field-protein AICG2+ --cgpdb --use-safe-dihedral 0 "
+                f"--output-name {shlex.quote(output_name)}"
             ),
             verified=False,
             citation="# VERIFY: aa_2_cg.jl has no HPS flag (confirmed absent from the full "
             "Command-Line-Arguments list); using --force-field-protein AICG2+ as the base "
             "topology builder for a fully-disordered chain is unconfirmed, and the input PDB "
-            "itself is confirmed insufficient (CA-only vs. the required all-heavy-atom).",
+            "itself is confirmed insufficient (CA-only vs. the required all-heavy-atom). "
+            "--use-safe-dihedral 0 added per DECISIONS.md (2026-09-14) so GENESIS 2.1.6 can "
+            "actually read the resulting dihedral section.",
         ),
         CgCommand(
             description="Mark the full chain as an HPS IDR region in the .itp",

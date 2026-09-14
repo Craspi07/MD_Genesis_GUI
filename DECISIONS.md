@@ -2,6 +2,46 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-14 — Found it: `--use-safe-dihedral` default writes an unreadable dihedral type
+
+The improved benchmark diagnosis (previous entry) surfaced the real
+GENESIS-side crash reason: `Read_Grotop> [dihedrals] not supported
+function type: 41`. Cross-checked two independent genesis_cg_tool wiki
+pages rather than acting on the number alone:
+
+- **File-formats** documents dihedral function types as original/"safe"
+  pairs: "Type 1 / Safe Type 32", "Type 21 / Safe Type 41", "Type 22 /
+  Safe Type 52" -- type 41 is the numerically-stabilized ("safe") variant
+  of type 21 (a Gaussian dihedral potential), not a mistake or a
+  different potential entirely.
+- **Command-Line-Arguments** documents `aa_2_cg.jl --use-safe-dihedral I`:
+  "0) do nothing; 1) cos^2(k*theta) type (**default**); 2) remove
+  dihedral potentials with large angles; 3) sin^3(k*theta) type." The
+  *default* (1) is what applies the safe transform and writes type 41 --
+  `build_aicg2p_command`/`build_hps_sequence_commands`
+  (`app/cgtool.py`) never passed this flag, so every AICG2+-based
+  topology this app has ever generated (both plain AICG2+ and the
+  HPS/sequence path, which reuses the same command builder for its base
+  topology) used the default and wrote type-41 dihedrals.
+
+This installed GENESIS 2.1.6 rejects type 41 outright, meaning it only
+reads the *original* types. Fixed by adding `--use-safe-dihedral 0` to
+both `aa_2_cg.jl` invocations in `app/cgtool.py` ("do nothing" per the
+flag's own documented semantics -- keeps the original type 21/1/22
+encoding). This affects every model type built from AICG2+'s topology
+builder (AICG2+, HPS single-chain, HPS condensate), not just the
+condensate project this was first hit on.
+
+**Not yet known**: whether `--use-safe-dihedral 0`'s "original" dihedral
+types are physically equivalent to the "safe" ones for this system, or
+whether the "safe" transform exists specifically to avoid a real
+numerical problem (singularities near certain angles, per the
+File-formats page's own framing) that the original type could hit for
+some structures. If a real run later shows energy/force blow-ups or
+`NaN`s that a "safe" dihedral would have prevented, that's the tradeoff
+made here -- getting GENESIS to read the file at all was the immediate
+blocker; revisit if numerical stability becomes the next issue.
+
 ## 2026-09-14 — Benchmark diagnosis still missed a real MPI rank crash
 
 Past the CRLF/param fixes, a benchmark run hit an actual MPI rank death
