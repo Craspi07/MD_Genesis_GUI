@@ -143,7 +143,7 @@ class MainWindow(QMainWindow):
         while self.tabs.count():
             self.tabs.removeTab(0)
 
-        self.files_tab = FilesTab(project, local_directory)
+        self.files_tab = FilesTab(project, local_directory, self.settings)
         self.tabs.addTab(self.files_tab, "Files")
 
         self.run_tab = RunTab(project, local_directory, self.settings)

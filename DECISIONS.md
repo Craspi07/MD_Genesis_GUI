@@ -2,6 +2,54 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-14 — Validate generated control files against `-h ctrl_all` directly
+
+Every bug in this session's real-run debugging (`VVER_CG` on cgdyn, CRLF/
+`;` comments, `--use-safe-dihedral`) shared a root cause: this app's
+control-file templates were built by reading tutorial pages and wiki
+docs, not by checking against the actual installed GENESIS binary, so
+nothing caught a mismatch until a real run failed. `mdgenesis.org` itself
+recommends `<engine> -h ctrl_all` as the way to get a real template for
+your exact installed version -- this app used that manually, once, to
+debug the integrator bug, but nothing made it a standing check.
+
+Added `app/ctrl_reference.py`: parses `<engine> -h ctrl_all` output into
+`{section: {keyword: allowed_values_or_None}}` (a trailing comment with a
+bracketed comma list, e.g. `# [LEAP,VVER]`, documents allowed values;
+plain-text comments mean "known keyword, unconstrained"), and
+`validate_control_text()` compares a rendered control file's keywords/
+values against it, returning warnings for: a section GENESIS doesn't
+recognize, a keyword GENESIS doesn't recognize within a known section, or
+a value outside a keyword's documented allowed set. `WslBridge.fetch_ctrl_all()`
+runs the actual command. `validate_against_installed_genesis()` chains
+fetch + parse + validate, degrading to a single "could not fetch"
+warning rather than raising if the binary can't be run.
+
+**Proof of value**: `tests/test_ctrl_reference.py` reproduces the actual
+`VVER_CG`-on-cgdyn bug as a direct regression test using the user's real
+pasted `-h ctrl_all` output for both engines -- validating `VVER_CG`
+against the cgdyn reference is flagged; validating the current
+engine-conditional templates against either engine's real reference
+passes cleanly.
+
+**Deliberately advisory, not a gate**: results are warnings surfaced to a
+human (via a new "Validate against GENESIS" button in the Files tab,
+enabled for `run.inp`), not a hard failure blocking project creation or
+saves. This module's own parsing of `-h ctrl_all`'s free-text comments
+could itself be incomplete for a GENESIS version/build this wasn't
+tested against -- false positives are possible, so a human reviews
+rather than the app silently refusing to write a file.
+
+**Scope note**: this only covers the control file (`run.inp`), which is
+what `-h ctrl_all` describes. It does not cover the topology
+(`.top`/`.itp`/`.gro`) -- GENESIS has no equivalent "dump every valid
+topology directive" flag. See the conversation for what's practical
+there instead (in short: no direct equivalent exists; the nearest analog
+is cross-checking `aa_2_cg.jl --help`'s current flag list before invoking
+it, and treating an actual short benchmark run, with the now-improved
+error surfacing, as the closest thing to a topology validator this
+ecosystem has).
+
 ## 2026-09-14 — Found it: `--use-safe-dihedral` default writes an unreadable dihedral type
 
 The improved benchmark diagnosis (previous entry) surfaced the real
