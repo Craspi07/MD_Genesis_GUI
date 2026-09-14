@@ -85,11 +85,29 @@ def _run_one_preset(
     top_name: str,
     gro_name: str,
 ) -> BenchmarkResult:
+    # Tag every preset's files uniquely (not a fixed "benchmark" prefix
+    # shared by all of them) -- confirmed 2026-09-14 from a real sweep
+    # where the second preset failed with "Open_file> File benchmark.rst
+    # already exists": GENESIS refuses to silently overwrite an existing
+    # restart file, and every preset used to share the same output_prefix.
+    tag = f"benchmark_{ranks}x{threads}"
+    control_filename = f"{tag}.inp"
+    log_name = f"{tag}.log"
+    pgid_name = f"{tag}.pgid"
+
+    # Even with a unique tag per preset, re-running the benchmark later on
+    # the same project would hit the identical collision against this
+    # preset's own leftover files from the previous run -- always start
+    # from a clean slate rather than relying on the tag alone.
+    bridge.run(
+        f"cd {project.directory} && rm -f {tag}.pdb {tag}.dcd {tag}.rst {log_name} {pgid_name}"
+    )
+
     box_x, box_y, box_z = default_box_size(project.model_type, project.parameters.box_size_nm)
     config = ControlFileConfig(
         top_file=top_name,
         gro_file=gro_name,
-        output_prefix="benchmark",
+        output_prefix=tag,
         temperature_k=project.parameters.temperature_k,
         n_steps=n_steps,
         timestep_fs=project.parameters.timestep_fs,
@@ -100,13 +118,11 @@ def _run_one_preset(
         box_z=box_z,
         engine=project.resources.engine.value,
     )
-    write_control_file(config, project.model_type, str(directory), filename="benchmark.inp", force=True)
+    write_control_file(config, project.model_type, str(directory), filename=control_filename, force=True)
 
     resources = ResourceConfig(engine=project.resources.engine, mpi_ranks=ranks, omp_threads=threads)
-    log_name = "benchmark.log"
-    pgid_name = "benchmark.pgid"
     script = build_wrapper_script(
-        resources, settings, control_file="benchmark.inp", log_file=log_name, pgid_file=pgid_name
+        resources, settings, control_file=control_filename, log_file=log_name, pgid_file=pgid_name
     )
     # Benchmarks run synchronously and to completion, unlike a real
     # (backgrounded) simulation run, so the caller gets a direct

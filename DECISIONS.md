@@ -2,6 +2,32 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-14 — Benchmark presets collided on shared output filenames
+
+Real progress worth noting: the 4x4 preset in a benchmark sweep actually
+completed a full short simulation successfully (first fully-successful
+real GENESIS run this whole debugging session). The next preset (8x2)
+then failed:
+
+```
+[STEP5] Perform Molecular Dynamics Simulation
+Open_file> File benchmark.rst already exists  rank_no = 0
+```
+
+Root cause: `_run_one_preset` (`app/benchmark.py`) used a fixed
+`output_prefix="benchmark"` (and fixed `benchmark.inp`/`.log`/`.pgid`
+filenames) for *every* preset in the sweep. GENESIS refuses to silently
+overwrite an existing restart file, so the first successful preset's
+`benchmark.rst` blocked every preset that ran after it.
+
+Fixed by tagging every preset's files with its own `ranks`/`threads`
+(`benchmark_4x4.inp`, `benchmark_8x2.rst`, etc.) instead of one shared
+name. Also added an explicit `rm -f` of that preset's own output files
+before running it, even though the tag is now unique per preset within
+one sweep -- without this, simply re-running the benchmark a second time
+on the same project would hit the identical collision against the
+*previous run's* leftover files for that same tag.
+
 ## 2026-09-14 — The sequence-input pipeline was using the wrong tool entirely
 
 Every fix so far this session (VVER_CG, CRLF/`;`, `--use-safe-dihedral`)
