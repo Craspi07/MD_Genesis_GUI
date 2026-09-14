@@ -1,23 +1,16 @@
-{# Protein-DNA control file: AICG2+ (protein) + 3SPN.2C (DNA). Confirmed
-   2026-09-09 against mdgenesis.org tutorial 11.2 (genesis_tutorial_11.2_2022,
-   3SPN.2C DNA) and tutorial 11.3 (genesis_tutorial_11.3_2022, PWMcos
-   protein-DNA) -- both use the same DNA-electrostatics keyword set and
-   both run with [BOUNDARY] type = NOBC. See DECISIONS.md for the full
-   writeup, including the pre-existing gap that app/cgtool.py has no
-   command builder wiring --force-field-DNA 3SPN.2C for this model type
-   yet (this pass only fixes what the generated control file says, not
-   that gap). #}
+{# Protein-DNA control file: AICG2+ (protein) + 3SPN.2C (DNA).
+   See DECISIONS.md for citations and the noted cgtool.py pipeline gap. #}
 {% include "_common_sections.j2" %}
 
 [ENERGY]
-forcefield            = RESIDCG   # mdgenesis.org tutorials 11.2/11.3 [ENERGY]: "forcefield = RESIDCG"; AICG2+/3SPN.2C are selected via genesis_cg_tool's --force-field-protein/--force-field-DNA flags when building the topology, not this keyword
-electrostatic         = CUTOFF    # confirmed verbatim in both tutorial 11.2 and 11.3 [ENERGY] sections
-cg_cutoffdist_ele     = 52.0      # mdgenesis.org tutorial 11.2 step 2.1 [ENERGY] example value
-cg_cutoffdist_DNAbp   = 18.0      # mdgenesis.org tutorial 11.2 step 2.1 [ENERGY] example value
-cg_pairlistdist_ele   = 57.0      # mdgenesis.org tutorial 11.2 step 2.1 [ENERGY] example value
-cg_pairlistdist_DNAbp = 23.0      # mdgenesis.org tutorial 11.2 step 2.1 [ENERGY] example value
-cg_pairlistdist_exv   = 15.0      # mdgenesis.org tutorial 11.2 step 2.1 [ENERGY] example value
-cg_sol_ionic_strength = 0.15      # mdgenesis.org tutorial 11.2 step 2.1 [ENERGY] example value (mol/L, physiological-ish ionic strength)
+forcefield            = RESIDCG   # tutorials 11.2/11.3
+electrostatic         = CUTOFF    # tutorials 11.2/11.3
+cg_cutoffdist_ele     = 52.0      # tutorial 11.2 step 2.1
+cg_cutoffdist_DNAbp   = 18.0      # tutorial 11.2 step 2.1
+cg_pairlistdist_ele   = 57.0      # tutorial 11.2 step 2.1
+cg_pairlistdist_DNAbp = 23.0      # tutorial 11.2 step 2.1
+cg_pairlistdist_exv   = 15.0      # tutorial 11.2 step 2.1
+cg_sol_ionic_strength = 0.15      # tutorial 11.2 step 2.1
 
 [BOUNDARY]
-type = NOBC   # confirmed verbatim in tutorial 11.2 (both DNA melting and hybridization steps) and tutorial 11.3 (PWMcos) [BOUNDARY] sections
+type = NOBC   # tutorials 11.2/11.3

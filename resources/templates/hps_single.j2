@@ -1,18 +1,17 @@
 {# HPS single-chain (disordered protein / IDR) control file.
-   Partially confirmed 2026-09-09: mdgenesis.org's official tutorials
-   (11.1-11.3) do not cover the HPS/IDR model at all -- it's a
-   genesis_cg_tool-only feature, applied via a [ cg_IDR_HPS_region ] block
-   in the .itp (genesis_cg_tool wiki: File-formats), not via a distinct
-   ENERGY forcefield keyword. What *is* now confirmed generically for
-   every RESIDCG-family CG run (AICG2+, 3SPN.2C, PWMcos) is applied here
-   too: forcefield = RESIDCG and electrostatic = CUTOFF. What remains
-   unconfirmed is marked # VERIFY below. See DECISIONS.md. #}
+   [ENERGY]/[BOUNDARY] confirmed against tutorial 11.4 (FUS, single-chain
+   step, pro.inp, atdyn). See DECISIONS.md. #}
 {% include "_common_sections.j2" %}
 
 [ENERGY]
-forcefield          = RESIDCG   # confirmed generically across every fetched RESIDCG tutorial (11.1/11.2/11.3); the HPS potential itself comes from the .itp's [ cg_IDR_HPS_region ] block (Dignon et al. 2018), not this keyword -- # VERIFY: no tutorial exercises this combination directly
-electrostatic       = CUTOFF    # confirmed as the only electrostatic keyword value observed in any fetched RESIDCG control file; the previous DEBYE_HUCKEL value was never actually observed anywhere and has been dropped
-cg_pairlistdist_exv = 15.0      # keyword name confirmed (mdgenesis.org tutorial 11.1 pro.inp); value is the tutorial's example, not HPS-specific
+forcefield            = RESIDCG   # tutorial 11.4 pro.inp
+electrostatic         = CUTOFF    # tutorial 11.4 pro.inp
+cg_cutoffdist_ele     = 52.0      # tutorial 11.4 pro.inp
+cg_cutoffdist_126     = 39.0      # tutorial 11.4 pro.inp
+cg_pairlistdist_ele   = 57.0      # tutorial 11.4 pro.inp
+cg_pairlistdist_126   = 44.0      # tutorial 11.4 pro.inp
+cg_sol_ionic_strength = 0.15      # tutorial 11.4 pro.inp
+cg_IDR_HPS_epsilon    = 0.2       # tutorial 11.4 pro.inp
 
 [BOUNDARY]
-type = NOBC   # VERIFY: still unconfirmed -- no GENESIS tutorial covers a single IDR chain. Note for context: tutorial 11.1's single AICG2+ *folded* protein actually uses PBC with a box, not NOBC (see aicg2p.j2), which is some evidence NOBC may not be GENESIS's default even for a lone chain. Kept NOBC here because an isolated disordered chain without a box is still the more defensible default absent a real IDR-specific example -- confirm before a production run.
+type = NOBC   # tutorial 11.4 pro.inp (single-chain step)

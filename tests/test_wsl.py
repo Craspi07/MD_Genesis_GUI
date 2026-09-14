@@ -116,6 +116,7 @@ def test_health_check_returns_items(bridge: WslBridge):
     names = [item.name for item in items]
     assert "WSL2 running" in names
     assert "mpirun found" in names
+    assert "genesis_cg_tool/param present" in names
     assert all(hasattr(item, "ok") for item in items)
 
 

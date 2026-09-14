@@ -241,6 +241,20 @@ class WslBridge:
             )
         )
 
+        param_dir = self.run("test -d ~/genesis_cg_tool/param && ls ~/genesis_cg_tool/param")
+        items.append(
+            HealthCheckItem(
+                name="genesis_cg_tool/param present",
+                ok=param_dir.ok and bool(param_dir.stdout.strip()),
+                detail=param_dir.stdout.strip()[:300] or "~/genesis_cg_tool/param missing or empty",
+                fix_hint=(
+                    "Generated .top files #include ./param/*.itp -- this directory is "
+                    "copied into every new project, and needs to exist under genesis_cg_tool "
+                    "for that to work. Re-check your genesis_cg_tool clone."
+                ),
+            )
+        )
+
         write_check = self.run(
             "mkdir -p ~/genesis_projects && touch ~/genesis_projects/.write_test "
             "&& rm ~/genesis_projects/.write_test && echo OK"

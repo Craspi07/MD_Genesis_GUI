@@ -7,6 +7,7 @@ from app.project_creation import (
     run_cg_tool_pipeline,
     generate_project_control_file,
     local_directory_for,
+    copy_cg_tool_param,
 )
 from app.settings import Settings
 from app.wsl import WslBridge
@@ -85,6 +86,34 @@ def test_run_cg_tool_pipeline_reports_failure_when_julia_missing(tmp_path: Path)
     assert not result.success
     assert (project_dir / "cgtool.log").exists()
     assert "julia" in result.log or "not found" in result.log.lower()
+
+
+def test_copy_cg_tool_param_succeeds_when_source_exists(tmp_path: Path, monkeypatch):
+    fake_home = tmp_path / "home"
+    (fake_home / "genesis_cg_tool" / "param").mkdir(parents=True)
+    (fake_home / "genesis_cg_tool" / "param" / "example.itp").write_text("; fake param\n")
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    project_dir = tmp_path / "proj"
+    project = Project(name="myproj", directory=str(project_dir))
+
+    result = copy_cg_tool_param(_bridge(), project)
+
+    assert result.ok
+    assert (project_dir / "param" / "example.itp").exists()
+
+
+def test_copy_cg_tool_param_fails_when_source_missing(tmp_path: Path, monkeypatch):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    project_dir = tmp_path / "proj"
+    project = Project(name="myproj", directory=str(project_dir))
+
+    result = copy_cg_tool_param(_bridge(), project)
+
+    assert not result.ok
 
 
 def test_generate_project_control_file(tmp_path: Path):

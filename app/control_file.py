@@ -2,11 +2,9 @@
 templates, and supports round-tripping user edits.
 
 See resources/templates/_common_sections.j2 and the per-model templates
-for citations: as of 2026-09-09 every keyword is either confirmed against
-a live fetch of mdgenesis.org (docs/usage/, tutorials 11.1-11.3) and the
-genesis_cg_tool wiki, or explicitly marked `# VERIFY` where no official
-source covers it (mainly the HPS/IDR model, which has no GENESIS
-tutorial). See DECISIONS.md for the full writeup.
+for short per-keyword citations; see DECISIONS.md for the full writeup
+of what's confirmed against which mdgenesis.org tutorial or a real
+installed GENESIS's `-h ctrl_all` output.
 """
 from __future__ import annotations
 
@@ -17,6 +15,7 @@ from typing import Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.project import ModelType
+from app.text_io import write_generated_text
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "resources" / "templates"
 
@@ -76,7 +75,10 @@ MODEL_TYPES_REQUIRING_BOX = (ModelType.HPS_CONDENSATE, ModelType.AICG2P)
 # project has no explicit SimulationParameters.box_size_nm set, for
 # whichever model type needs one (see MODEL_TYPES_REQUIRING_BOX).
 DEFAULT_BOX_SIZE = 180.0
-DEFAULT_CONDENSATE_BOX = (20.0, 20.0, 200.0)
+# tutorial 11.4's FUS condensate example (fus_120.inp) uses this exact
+# slab box -- corrected 2026-09-11 from an earlier unverified (20,20,200)
+# guess made before any condensate tutorial had been found.
+DEFAULT_CONDENSATE_BOX = (180.0, 180.0, 1800.0)
 
 
 def default_box_size(model_type: ModelType, box_size: Optional[float]) -> tuple:
@@ -124,5 +126,5 @@ def write_control_file(
     if path.exists() and not force:
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_control_file(config, model_type))
+    write_generated_text(path, render_control_file(config, model_type))
     return path

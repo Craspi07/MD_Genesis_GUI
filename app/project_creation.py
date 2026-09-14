@@ -24,7 +24,8 @@ from app.cgtool import (
 from app.control_file import ControlFileConfig, default_box_size, write_control_file
 from app.project import Project, ModelType, InputMode
 from app.settings import Settings
-from app.wsl import WslBridge
+from app.text_io import write_generated_text
+from app.wsl import CommandResult, WslBridge
 
 
 def local_directory_for(settings: Settings, project_name: str) -> str:
@@ -67,7 +68,7 @@ def create_project_files(
     else:
         pdb_text = generate_extended_chain_pdb(project.sequence)
         dest = directory / f"{project.name}_extended.pdb"
-        dest.write_text(pdb_text)
+        write_generated_text(dest, pdb_text)
         created.append(dest.name)
 
     return created
@@ -82,6 +83,19 @@ def build_cg_commands(project: Project, input_filename: str) -> List[CgCommand]:
             project.sequence, output_name=project.name, extended_pdb_filename=input_filename
         )
     return [build_aicg2p_command(input_filename, output_name=project.name)]
+
+
+def _param_copy_command(project: Project) -> str:
+    """Shell command copying genesis_cg_tool's param/ directory into the
+    project directory. The generated .top file #includes ./param/*.itp
+    relative to the run directory (jobs are launched with `cd
+    {project.directory} && ...`), so param/ must exist alongside it --
+    see DECISIONS.md."""
+    return f"mkdir -p {project.directory}/param && cp -r ~/genesis_cg_tool/param/. {project.directory}/param/"
+
+
+def copy_cg_tool_param(bridge: WslBridge, project: Project) -> CommandResult:
+    return bridge.run(_param_copy_command(project))
 
 
 def run_cg_tool_pipeline(
@@ -129,7 +143,7 @@ def run_cg_tool_pipeline(
         itp_files = list(directory.glob(f"{project.name}*.itp"))
         for itp_path in itp_files:
             text = itp_path.read_text()
-            itp_path.write_text(inject_idr_hps_region(text, 1, len(project.sequence)))
+            write_generated_text(itp_path, inject_idr_hps_region(text, 1, len(project.sequence)))
         log_parts.append(f"$ (local) marked {len(itp_files)} .itp file(s) as HPS IDR region")
 
     if project.model_type == ModelType.HPS_CONDENSATE and project.parameters.n_copies > 1:
@@ -139,9 +153,26 @@ def run_cg_tool_pipeline(
             gro_text = gro_files[0].read_text()
             top_text = top_files[0].read_text()
             new_gro, new_top = build_slab_system(gro_text, top_text, project.parameters.n_copies)
-            gro_files[0].write_text(new_gro)
-            top_files[0].write_text(new_top)
+            write_generated_text(gro_files[0], new_gro)
+            write_generated_text(top_files[0], new_top)
             log_parts.append(f"$ (local) replicated system into {project.parameters.n_copies} copies (slab box)")
+
+    # genesis_cg_tool's .top #includes ./param/*.itp relative to the run
+    # directory -- copy the param/ directory alongside it or GENESIS can't
+    # resolve those includes. See DECISIONS.md.
+    param_result = copy_cg_tool_param(bridge, project)
+    log_parts.append(f"$ {_param_copy_command(project)}")
+    if param_result.stdout:
+        log_parts.append(param_result.stdout)
+    if not param_result.ok:
+        log_text = "\n".join(log_parts)
+        (directory / "cgtool.log").write_text(log_text)
+        return CreationResult(
+            False,
+            "Could not copy genesis_cg_tool/param into the project directory "
+            "(needed for the generated .top file's ./param/*.itp includes).",
+            log_text,
+        )
 
     log_text = "\n".join(log_parts)
     (directory / "cgtool.log").write_text(log_text)
