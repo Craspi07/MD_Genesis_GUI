@@ -1,11 +1,12 @@
-"""Main application window: project tree, tabbed center, log dock."""
+"""Main application window: project dashboard, project tree, tabbed
+center, log dock.
+"""
 from __future__ import annotations
+
+from pathlib import Path
 
 from PyQt5.QtWidgets import (
     QMainWindow,
-    QWidget,
-    QLabel,
-    QVBoxLayout,
     QTabWidget,
     QDockWidget,
     QPlainTextEdit,
@@ -13,11 +14,16 @@ from PyQt5.QtWidgets import (
     QTreeWidgetItem,
     QAction,
     QMenu,
+    QMessageBox,
 )
 from PyQt5.QtCore import Qt
 
 from app.settings import Settings
 from app.project import Project
+from ui.dashboard import ProjectDashboard
+
+DASHBOARD_TAB_INDEX = 0
+PROJECT_PATH_ROLE = Qt.UserRole
 
 
 class MainWindow(QMainWindow):
@@ -40,26 +46,21 @@ class MainWindow(QMainWindow):
     def _build_project_tree(self) -> None:
         self.project_tree = QTreeWidget()
         self.project_tree.setHeaderLabel("Projects")
-        placeholder = QTreeWidgetItem(["No project open"])
-        self.project_tree.addTopLevelItem(placeholder)
+        self.project_tree.itemDoubleClicked.connect(self._on_tree_item_double_clicked)
 
         dock = QDockWidget("Projects", self)
         dock.setWidget(self.project_tree)
         dock.setObjectName("projects_dock")
         self.addDockWidget(Qt.LeftDockWidgetArea, dock)
         self.project_dock = dock
+        self.refresh_project_views()
 
     def _build_center_tabs(self) -> None:
         self.tabs = QTabWidget()
-        welcome = QWidget()
-        layout = QVBoxLayout(welcome)
-        label = QLabel(
-            "Welcome to GENESIS Studio.\n\n"
-            "Use File > New Project to set up a coarse-grained simulation."
-        )
-        label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(label)
-        self.tabs.addTab(welcome, "Welcome")
+        self.dashboard = ProjectDashboard(self.settings)
+        self.dashboard.new_project_button.clicked.connect(self._on_new_project)
+        self.dashboard.project_open_requested.connect(self.open_project)
+        self.tabs.addTab(self.dashboard, "Dashboard")
         self.setCentralWidget(self.tabs)
 
     def _build_log_dock(self) -> None:
@@ -119,18 +120,26 @@ class MainWindow(QMainWindow):
         from app.project_creation import local_directory_for
 
         wizard = NewProjectWizard(self.settings, self)
-        if wizard.exec_() == QDialog.Accepted:
-            name = wizard.review_page.name_edit.text().strip()
-            if name:
-                local_dir = local_directory_for(self.settings, name)
-                self.settings.add_recent_project(local_dir)
-                self.settings.save()
-                try:
-                    project = Project.load(local_dir)
-                except (OSError, ValueError):
-                    project = None
-                if project is not None:
-                    self.open_project(project, local_dir)
+        if wizard.exec_() != QDialog.Accepted:
+            return
+        name = wizard.review_page.name_edit.text().strip()
+        if not name:
+            return
+        local_dir = local_directory_for(self.settings, name)
+        try:
+            project = Project.load(local_dir)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(
+                self,
+                "Project creation failed",
+                f"The project wizard finished, but '{name}' could not be opened "
+                f"from {local_dir}:\n\n{exc}",
+            )
+            return
+        self.settings.add_recent_project(local_dir)
+        self.settings.save()
+        self.refresh_project_views()
+        self.open_project(project, local_dir)
 
     def open_project(self, project: Project, local_directory: str) -> None:
         from ui.tab_files import FilesTab
@@ -140,22 +149,69 @@ class MainWindow(QMainWindow):
         self.current_project = project
         self.current_project_dir = local_directory
 
-        while self.tabs.count():
-            self.tabs.removeTab(0)
+        while self.tabs.count() > DASHBOARD_TAB_INDEX + 1:
+            self.tabs.removeTab(self.tabs.count() - 1)
 
         self.files_tab = FilesTab(project, local_directory, self.settings)
         self.tabs.addTab(self.files_tab, "Files")
 
         self.run_tab = RunTab(project, local_directory, self.settings)
+        self.run_tab.runner.status_changed.connect(lambda _status: self.refresh_project_views())
         self.tabs.addTab(self.run_tab, "Run")
 
         self.analysis_tab = AnalysisTab(project, local_directory, self.settings)
         self.tabs.addTab(self.analysis_tab, "Analysis")
 
+        self.tabs.setCurrentWidget(self.files_tab)
+        self.refresh_project_views()
+
+    def refresh_project_views(self) -> None:
+        """Keep the dashboard tab and the Projects tree in sync with
+        Settings.recent_projects and the currently open project's live
+        status. Called after project creation, removal, opening, and on
+        every run status change so neither view goes stale mid-session.
+        """
+        if hasattr(self, "dashboard"):
+            self.dashboard.refresh()
+        self._refresh_project_tree()
+
+    def _refresh_project_tree(self) -> None:
         self.project_tree.clear()
-        root = QTreeWidgetItem([project.name])
-        self.project_tree.addTopLevelItem(root)
-        root.setExpanded(True)
+        paths = list(self.settings.recent_projects)
+        if not paths:
+            placeholder = QTreeWidgetItem(["No projects yet"])
+            self.project_tree.addTopLevelItem(placeholder)
+            return
+
+        for path in paths:
+            try:
+                project = Project.load(path)
+            except (OSError, ValueError):
+                item = QTreeWidgetItem([f"{Path(path).name} (missing)"])
+                item.setData(0, PROJECT_PATH_ROLE, path)
+                self.project_tree.addTopLevelItem(item)
+                continue
+
+            label = f"{project.name}  [{project.last_run_status}]"
+            item = QTreeWidgetItem([label])
+            item.setData(0, PROJECT_PATH_ROLE, path)
+            self.project_tree.addTopLevelItem(item)
+            if path == self.current_project_dir:
+                font = item.font(0)
+                font.setBold(True)
+                item.setFont(0, font)
+                item.setExpanded(True)
+
+    def _on_tree_item_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
+        path = item.data(0, PROJECT_PATH_ROLE)
+        if not path:
+            return
+        try:
+            project = Project.load(path)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Can't open project", f"{path}:\n\n{exc}")
+            return
+        self.open_project(project, path)
 
     def _on_run_shortcut(self) -> None:
         if hasattr(self, "run_tab") and self.run_tab.start_button.isEnabled():

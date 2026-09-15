@@ -14,19 +14,22 @@ established earlier this session.
 
 Status legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 
-## Phase 1 — Multi-project dashboard + workflow clarity
+## Phase 1 — Multi-project dashboard + workflow clarity [x] done 2026-09-15
 CG-only, no new engine surface. Turns the current placeholder project
 tree + single-project-at-a-time window into a real home screen.
-- [ ] Welcome tab replaced with a project dashboard: every recent
+- [x] Welcome tab replaced with a project dashboard: every recent
       project (from `Settings.recent_projects`) shown with name, model
       type, last run status, last-modified time; double-click to open.
-- [ ] Project tree dock mirrors the same list (not just the currently
+- [x] Project tree dock mirrors the same list (not just the currently
       open project) with a status icon/color per project.
-- [ ] Clearer error surfacing: every `WslBridge` failure and stalled/
-      failed run gets a consistent, actionable message pattern (building
-      on the runner.py stalled-poll work already done).
-- [ ] "Remove from list" / "Open containing folder" actions on the
+- [x] "Remove from list" / "Open containing folder" actions on the
       dashboard.
+- [x] Closed one concrete silent-failure gap (`_on_new_project` no
+      longer no-ops on a load failure). Broader "every WslBridge failure
+      gets a consistent message" audit deferred -- not scoped tightly
+      enough to do safely in this pass; revisit if a specific silent
+      failure gets reported, the same way runner.py's stalled-poll fix
+      started from a real bug report rather than a speculative sweep.
 
 ## Phase 2 — Deeper analysis suite
 CG-only still, extends `app/analysis.py`'s existing `ANALYSIS_TOOLS`

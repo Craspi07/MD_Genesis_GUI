@@ -2,6 +2,45 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-15 — Roadmap Phase 1: multi-project dashboard + workflow clarity
+
+Asked to "expand the GUI to include everything GENESIS can do and make
+it better" -- too broad to attempt as one change, so it became a
+six-phase plan (`ROADMAP.md`), sequenced by risk/dependency and executed
+one phase at a time. This entry covers Phase 1, the only phase with no
+new control-file/engine surface to verify.
+
+Problems fixed:
+- The center tabs only ever showed a static "Welcome to GENESIS Studio"
+  label or one open project at a time -- no visibility into any other
+  project's existence or status without reopening it. Added
+  `ui/dashboard.py`'s `ProjectDashboard`: a table over
+  `Settings.recent_projects` showing name/model type/last run
+  status/last-modified, colored by status, double-click to open.
+- The Projects tree dock (`ui/main_window.py`) only ever held a single
+  placeholder item or the one currently-open project -- it now lists
+  every recent project (bolded/expanded for whichever one is open),
+  double-click opens it, same as the dashboard.
+- `MainWindow._on_new_project`'s failure path silently did nothing if
+  the freshly created project couldn't be reloaded (`except (OSError,
+  ValueError): project = None` then just skip) -- the exact class of
+  silent failure this whole roadmap's "workflow clarity" phase exists
+  to close. Now shows a `QMessageBox.warning` naming the directory and
+  the exception instead.
+- Run status changes (`RunTab.runner.status_changed`) now trigger
+  `MainWindow.refresh_project_views()` so the dashboard/tree don't go
+  stale while a simulation most recently opened is still running.
+
+Design choice: the Dashboard is a permanent tab at index 0, never
+removed by `open_project()` (which now only clears tabs *after* it) --
+switching projects no longer requires going back through File > Open;
+clicking the Dashboard tab is always available.
+
+A project whose `project.json` can't be loaded (moved/deleted folder,
+corrupt file) is shown as "missing / unreadable" in both the dashboard
+and the tree instead of being silently dropped from the list, so a
+vanished project doesn't look like it never existed.
+
 ## 2026-09-14 — Run tab could silently sit at "running" with no log/plot
 
 Reported symptom: "the status is running, but there is no plot, no log
