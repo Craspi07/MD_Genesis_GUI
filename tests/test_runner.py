@@ -81,6 +81,85 @@ def test_runner_poll_parses_newly_tailed_lines(bridge: WslBridge, tmp_path: Path
     assert received[0][0].values["TOTAL_ENE"] == -1234.50
 
 
+def test_start_cleans_up_previous_outputs_for_fresh_start(bridge: WslBridge, tmp_path: Path):
+    # Real 2026-09-14 symptom: "status running, no plot, no log whatsoever"
+    # -- GENESIS refuses to overwrite an existing restart file
+    # ("Open_file> File ... already exists"), and a real run's backgrounded
+    # launch has no synchronous way to surface that crash. A fresh start
+    # must clear any leftover GENESIS-written outputs first.
+    project = _project(str(tmp_path))
+    (tmp_path / "test.rst").write_text("old restart\n")
+    (tmp_path / "test.pdb").write_text("old pdb\n")
+    (tmp_path / "test.dcd").write_text("old dcd\n")
+    runner = SimulationRunner(bridge, project, str(tmp_path), poll_interval_ms=100)
+    runner.set_settings(_settings())
+
+    runner.start()
+    runner._timer.stop()
+
+    assert not (tmp_path / "test.rst").exists()
+    assert not (tmp_path / "test.pdb").exists()
+    assert not (tmp_path / "test.dcd").exists()
+
+
+def test_start_continuation_preserves_restart_file(bridge: WslBridge, tmp_path: Path):
+    # A continuation run needs its own .rst as the [INPUT] restart file --
+    # cleanup must not delete the very file it's supposed to resume from.
+    project = _project(str(tmp_path))
+    (tmp_path / "test.rst").write_text("old restart\n")
+    (tmp_path / "test.pdb").write_text("old pdb\n")
+    runner = SimulationRunner(bridge, project, str(tmp_path), poll_interval_ms=100)
+    runner.set_settings(_settings())
+
+    runner.start(is_continuation=True)
+    runner._timer.stop()
+
+    assert (tmp_path / "test.rst").exists()
+    assert not (tmp_path / "test.pdb").exists()  # still safe to clear
+
+
+def test_poll_reports_failed_after_repeated_silence(bridge: WslBridge, tmp_path: Path):
+    # If run.log never gets anything appended to it and run.pgid never
+    # becomes readable, the launch almost certainly failed before GENESIS
+    # wrote anything -- must report this instead of silently polling
+    # forever at "running".
+    project = _project(str(tmp_path))
+    (tmp_path / "run.log").write_text("")
+    runner = SimulationRunner(bridge, project, str(tmp_path), poll_interval_ms=100)
+    runner.set_settings(_settings())
+    runner._timer.start()
+
+    statuses = []
+    errors = []
+    runner.status_changed.connect(statuses.append)
+    runner.error_detected.connect(errors.append)
+
+    for _ in range(SimulationRunner.MAX_STALLED_POLLS):
+        runner.poll()
+
+    assert project.last_run_status == "failed"
+    assert "failed" in statuses
+    assert any("failed to start" in e for e in errors)
+    assert not runner._timer.isActive()
+
+
+def test_poll_resets_stall_counter_when_output_appears(bridge: WslBridge, tmp_path: Path):
+    project = _project(str(tmp_path))
+    log_path = tmp_path / "run.log"
+    log_path.write_text("")
+    runner = SimulationRunner(bridge, project, str(tmp_path), poll_interval_ms=100)
+    runner.set_settings(_settings())
+
+    runner.poll()
+    runner.poll()
+    assert runner._stalled_poll_count == 2
+
+    log_path.write_text("INFO:       STEP       TIME   TOTAL_ENE\n")
+    runner._pgid = os.getpgrp()  # keep it "alive" so poll() doesn't call _on_finished
+    runner.poll()
+    assert runner._stalled_poll_count == 0
+
+
 def test_runner_detects_finished_process(bridge: WslBridge, tmp_path: Path):
     project = _project(str(tmp_path))
     runner = SimulationRunner(bridge, project, str(tmp_path), poll_interval_ms=100)
