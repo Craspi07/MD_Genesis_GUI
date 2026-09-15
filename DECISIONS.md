@@ -2,6 +2,77 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-15 — Roadmap Phase 2: RMSF and SASA added to the Analysis tab
+
+RMSD/Rg/Q-value/contact-map/density already existed in `app/analysis.py`
+before this roadmap; the two tools genuinely missing were RMSF and SASA.
+Both needed real research (`mdgenesis.org`'s own example pages, fetched
+live) rather than reuse of the existing `write_analysis_control_file`
+pattern, because both tools take fundamentally different `[INPUT]`.
+
+**RMSF**: confirmed there is no single "rmsf_analysis" binary -- the
+real tool is `flccrd_analysis` (root-mean-square fluctuation), and it
+needs a prerequisite `avecrd_analysis` run first to produce
+`pdb_avefile`/`pdb_aftfile` (average and "after-fit" reference
+structures). Confirmed exact keywords from mdgenesis.org's own example
+pages:
+- `avecrd_analysis`: `[INPUT] reffile`/`psffile`; `[OUTPUT] pdbfile`/
+  `rmsfile`/`pdb_avefile`/`pdb_aftfile`; `[TRAJECTORY]` (with
+  `ana_period1`/`repeat1`/`trj_natom`, shown in the doc example but not
+  part of the shorter block already proven for rmsd/rg/qvalue/distmat --
+  kept as a second, separate block rather than risk changing a working
+  pattern); `[SELECTION]`; `[FITTING] fitting_method=TR+ROT`; `[OPTION]`.
+- `flccrd_analysis`: same `[INPUT]` shape plus `pdb_avefile`/
+  `pdb_aftfile` from the avecrd step; `[OUTPUT] rmsfile` (pcafile/
+  vcvfile/crsfile omitted as not needed -- `# VERIFY`, not directly
+  witnessed that omitting them is safe for this specific tool, though
+  every other GENESIS analysis tool's `[OUTPUT]` keywords are
+  independently optional by omission).
+
+Neither tool's docs show `grotopfile`/`grocrdfile` (GROMACS format) as
+an alternative to `psffile`/`reffile` -- unlike rmsd_analysis etc.,
+which do. This matters because it's genuinely unconfirmed whether
+`aa_2_cg.jl --cgpdb` (the AICG2+/PDB-input pipeline) writes a `.psf` at
+all; only `cg_protein_structure_builder.jl` (the sequence/HPS pipeline)
+is confirmed to (`app/cgtool.py`'s own docstring). Rather than guess by
+`project.model_type`, `rmsf_inputs_available()` checks for a real
+`.psf`+`.pdb` in the project directory at call time and the Analysis
+tab's RMSF button is enabled/disabled from that, with a tooltip
+explaining why when disabled. If it turns out `aa_2_cg.jl` also writes
+a `.psf`, this gate does the right thing automatically with no code
+change; if not, it never sends an AICG2+ project into a pipeline that
+was never confirmed to work for it.
+
+**SASA**: confirmed the real tool is `sasa_analysis` (SPANA framework),
+needing `[INPUT] psffile`/`reffile`/`pdbfile` (same `reffile`==`pdbfile`
+duplication shown in the doc's own example), `[OUTPUT] txtfile`,
+`[BOUNDARY]`, `[ENSEMBLE]`, `[SELECTION]`, `[SPANA_OPTION]`,
+`[SASA_OPTION]` (`solute`, `radi_file`, `probe_radius=1.4`,
+`delta_z=0.2`, `output_style`, `recenter`). `output_style = history`
+chosen specifically because it's documented as "temporal profile of
+total SASA only" -- a plain two-column series `parse_two_column_series`
+already handles, unlike `atomic`/`atomic+history`'s per-atom output.
+Same `.psf`/`.pdb` gating as RMSF (`sasa_inputs_available`, currently
+identical to `rmsf_inputs_available`).
+
+Two things called out instead of guessed:
+- `[BOUNDARY]`'s `domain_x/y/z`/`num_cells_x/y/z` (SPANA spatial
+  decomposition sizing): the doc example's values were sized for that
+  example's own box and parallel rank count, so copying them would be
+  exactly the kind of unfounded guess this whole codebase's discipline
+  exists to avoid. Used the smallest possible decomposition (a single
+  domain, single cell) for a serial single-rank run instead, with an
+  explicit `# VERIFY` written directly into the generated `.inp` file
+  (not just a code comment) so it's visible if the user opens the file,
+  and will need confirming against a real install.
+- `radi_file` (an atom-radius definition file `[SASA_OPTION]` requires):
+  no default ships anywhere documented, unlike `vmd_path`'s guessable
+  Windows install path. Rather than hardcode a guessed path, added
+  `Settings.sasa_radius_file` (new Settings dialog field, empty by
+  default) the user must point at a real file; the SASA button stays
+  disabled with a tooltip until it's set, and `run_sasa_analysis`
+  refuses with an explicit message if called without one.
+
 ## 2026-09-15 — Roadmap Phase 1: multi-project dashboard + workflow clarity
 
 Asked to "expand the GUI to include everything GENESIS can do and make

@@ -34,6 +34,8 @@ class Settings:
     mpi_extra_args: str = DEFAULT_MPI_EXTRA_ARGS
     total_cores: int = DEFAULT_TOTAL_CORES
     vmd_path: str = r"C:\Program Files\University of Illinois\VMD\vmd.exe"
+    sasa_radius_file: str = ""  # sasa_analysis's [SASA_OPTION] radi_file -- no confirmed default path
+    # ships with GENESIS, so unlike vmd_path this has no guessed fallback; see DECISIONS.md
     last_project: str = ""
     recent_projects: List[str] = field(default_factory=list)
     window_geometry: Optional[bytes] = None
@@ -52,6 +54,7 @@ class Settings:
         self.mpi_extra_args = s.value("wsl/mpi_extra_args", DEFAULT_MPI_EXTRA_ARGS, type=str)
         self.total_cores = int(s.value("wsl/total_cores", DEFAULT_TOTAL_CORES))
         self.vmd_path = s.value("tools/vmd_path", self.vmd_path, type=str)
+        self.sasa_radius_file = s.value("tools/sasa_radius_file", "", type=str)
         self.last_project = s.value("projects/last", "", type=str)
         recents = s.value("projects/recent", [])
         self.recent_projects = list(recents) if recents else []
@@ -67,6 +70,7 @@ class Settings:
         s.setValue("wsl/mpi_extra_args", self.mpi_extra_args)
         s.setValue("wsl/total_cores", self.total_cores)
         s.setValue("tools/vmd_path", self.vmd_path)
+        s.setValue("tools/sasa_radius_file", self.sasa_radius_file)
         s.setValue("projects/last", self.last_project)
         s.setValue("projects/recent", self.recent_projects)
         if self.window_geometry is not None:

@@ -22,6 +22,10 @@ from PyQt5.QtWidgets import (
 from app.analysis import (
     ANALYSIS_TOOLS,
     run_analysis,
+    run_rmsf_analysis,
+    run_sasa_analysis,
+    rmsf_inputs_available,
+    sasa_inputs_available,
     parse_two_column_series,
     parse_contact_map,
     AnalysisRunResult,
@@ -44,24 +48,48 @@ SERIES_ANALYSES = {
     "rmsd": ("Frame", "RMSD (nm)"),
     "rg": ("Frame", "Rg (nm)"),
     "qvalue": ("Frame", "Q-value"),
+    "rmsf": ("Atom", "RMSF"),
+    "sasa": ("Frame", "SASA"),
+}
+
+# rmsf/sasa aren't in ANALYSIS_TOOLS (they need a multi-step pipeline / an
+# extra Settings-supplied radius file, not the uniform single-call pattern
+# app/analysis.py's run_analysis() covers) -- labels kept here instead.
+EXTRA_TOOL_LABELS = {
+    "rmsf": "RMSF (root-mean-square fluctuation)",
+    "sasa": "SASA (solvent-accessible surface area)",
 }
 
 
 class AnalysisWorker(QObject):
     finished = pyqtSignal(str, str, object, object)  # key, analysis_type, AnalysisRunResult, mode
 
-    def __init__(self, bridge: WslBridge, analysis_type: str, project: Project, local_directory: str, mode: Optional[str]):
+    def __init__(
+        self,
+        bridge: WslBridge,
+        analysis_type: str,
+        project: Project,
+        local_directory: str,
+        mode: Optional[str],
+        sasa_radius_file: str = "",
+    ):
         super().__init__()
         self.bridge = bridge
         self.analysis_type = analysis_type
         self.project = project
         self.local_directory = local_directory
         self.mode = mode
+        self.sasa_radius_file = sasa_radius_file
 
     def run(self) -> None:
         key = f"{self.analysis_type}_{self.mode}" if self.mode else self.analysis_type
         try:
-            result = run_analysis(self.bridge, self.analysis_type, self.project, self.local_directory, mode=self.mode)
+            if self.analysis_type == "rmsf":
+                result = run_rmsf_analysis(self.bridge, self.project, self.local_directory)
+            elif self.analysis_type == "sasa":
+                result = run_sasa_analysis(self.bridge, self.project, self.local_directory, self.sasa_radius_file)
+            else:
+                result = run_analysis(self.bridge, self.analysis_type, self.project, self.local_directory, mode=self.mode)
         except Exception as exc:  # noqa: BLE001 - surface any failure to the UI
             result = AnalysisRunResult(success=False, output_path=None, log=str(exc))
         self.finished.emit(key, self.analysis_type, result, self.mode)
@@ -90,6 +118,26 @@ class AnalysisTab(QWidget):
         self._add_button(button_grid, 1, 2, "Temperature / energy over time", self._plot_temperature_energy)
         self.density_button = self._add_button(button_grid, 2, 0, "Density profile (z)", lambda: self._run("density"))
         self.density_button.setEnabled(project.model_type == ModelType.HPS_CONDENSATE)
+
+        self.rmsf_button = self._add_button(button_grid, 2, 1, "RMSF", lambda: self._run("rmsf"))
+        self._rmsf_available = rmsf_inputs_available(local_directory, project)
+        self.rmsf_button.setEnabled(self._rmsf_available)
+        if not self._rmsf_available:
+            self.rmsf_button.setToolTip(
+                "No .psf/.pdb found for this project -- RMSF needs the sequence/HPS "
+                "structure-builder pipeline's output."
+            )
+
+        self.sasa_button = self._add_button(button_grid, 2, 2, "SASA", lambda: self._run("sasa"))
+        self._sasa_available = sasa_inputs_available(local_directory, project)
+        self.sasa_button.setEnabled(self._sasa_available and bool(settings.sasa_radius_file))
+        if not self._sasa_available:
+            self.sasa_button.setToolTip(
+                "No .psf/.pdb found for this project -- SASA needs the sequence/HPS "
+                "structure-builder pipeline's output."
+            )
+        elif not settings.sasa_radius_file:
+            self.sasa_button.setToolTip("Set a SASA radius file in Settings first.")
         layout.addLayout(button_grid)
 
         self.canvas = MplCanvas(title="Analysis result", ylabel="value")
@@ -122,10 +170,17 @@ class AnalysisTab(QWidget):
         return button
 
     # -- running analyses ----------------------------------------------------
+    def _tool_label(self, analysis_type: str) -> str:
+        if analysis_type in EXTRA_TOOL_LABELS:
+            return EXTRA_TOOL_LABELS[analysis_type]
+        return ANALYSIS_TOOLS[analysis_type][3]
+
     def _run(self, analysis_type: str, mode: Optional[str] = None) -> None:
-        self.status_label.setText(f"Running {ANALYSIS_TOOLS[analysis_type][3]}...")
+        self.status_label.setText(f"Running {self._tool_label(analysis_type)}...")
         thread = QThread(self)
-        worker = AnalysisWorker(self.bridge, analysis_type, self.project, self.local_directory, mode)
+        worker = AnalysisWorker(
+            self.bridge, analysis_type, self.project, self.local_directory, mode, self.settings.sasa_radius_file
+        )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self._on_analysis_finished)
@@ -162,7 +217,7 @@ class AnalysisTab(QWidget):
         else:
             x_label, y_label = SERIES_ANALYSES.get(analysis_type, ("Frame", "Value"))
             xs, ys = parse_two_column_series(text)
-            label = ANALYSIS_TOOLS[analysis_type][3]
+            label = self._tool_label(analysis_type)
             self._series_results[key] = AnalysisSeries(label=label, x_label=x_label, y_label=y_label, x=xs, y=ys)
             self.canvas.clear()
             self.canvas.set_series(label, xs, ys)

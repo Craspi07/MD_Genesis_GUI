@@ -21,6 +21,38 @@ def test_density_button_only_enabled_for_condensate(tmp_path: Path):
     assert tab2.density_button.isEnabled()
 
 
+def test_rmsf_and_sasa_buttons_disabled_without_psf_pdb(tmp_path: Path):
+    tab = _tab(tmp_path)
+    assert not tab.rmsf_button.isEnabled()
+    assert not tab.sasa_button.isEnabled()
+
+
+def test_rmsf_button_enabled_once_psf_and_pdb_exist(tmp_path: Path):
+    (tmp_path / "myproj_cg.psf").write_text("")
+    (tmp_path / "myproj_cg.pdb").write_text("ATOM\n")
+    tab = _tab(tmp_path)
+    assert tab.rmsf_button.isEnabled()
+
+
+def test_sasa_button_stays_disabled_without_radius_file_even_with_inputs(tmp_path: Path):
+    (tmp_path / "myproj_cg.psf").write_text("")
+    (tmp_path / "myproj_cg.pdb").write_text("ATOM\n")
+    tab = _tab(tmp_path)
+    # _tab() builds a bare Settings() with no sasa_radius_file configured
+    assert not tab.sasa_button.isEnabled()
+
+
+def test_sasa_button_enabled_with_inputs_and_radius_file_configured(tmp_path: Path):
+    (tmp_path / "myproj_cg.psf").write_text("")
+    (tmp_path / "myproj_cg.pdb").write_text("ATOM\n")
+    project = Project(name="myproj", directory=str(tmp_path))
+    settings = Settings()
+    settings.distro = "Ubuntu-24.04"
+    settings.sasa_radius_file = "/opt/genesis/radi_list"
+    tab = AnalysisTab(project, str(tmp_path), settings)
+    assert tab.sasa_button.isEnabled()
+
+
 def test_on_analysis_finished_series_populates_results(tmp_path: Path):
     tab = _tab(tmp_path)
     output = tmp_path / "rmsd.txt"

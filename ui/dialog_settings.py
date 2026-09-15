@@ -96,6 +96,14 @@ class SettingsDialog(QDialog):
         vmd_row.addWidget(self.vmd_browse_button)
         form.addRow("VMD path:", vmd_row)
 
+        sasa_row = QHBoxLayout()
+        self.sasa_radius_file_edit = QLineEdit()
+        self.sasa_radius_file_edit.setPlaceholderText(
+            "Path inside WSL to a sasa_analysis radi_file (leave blank to disable SASA)"
+        )
+        sasa_row.addWidget(self.sasa_radius_file_edit)
+        form.addRow("SASA radius file:", sasa_row)
+
         layout.addWidget(setup_group)
 
         check_group = QGroupBox("Health check")
@@ -128,6 +136,7 @@ class SettingsDialog(QDialog):
         self.user_edit.setText(self.settings.linux_user)
         self.mpi_args_edit.setText(self.settings.mpi_extra_args)
         self.vmd_path_edit.setText(self.settings.vmd_path)
+        self.sasa_radius_file_edit.setText(self.settings.sasa_radius_file)
 
     # -- actions -------------------------------------------------------------
     def _current_bridge(self) -> WslBridge:
@@ -205,5 +214,6 @@ class SettingsDialog(QDialog):
         self.settings.linux_user = self.user_edit.text().strip()
         self.settings.mpi_extra_args = self.mpi_args_edit.text().strip() or self.settings.mpi_extra_args
         self.settings.vmd_path = self.vmd_path_edit.text().strip() or self.settings.vmd_path
+        self.settings.sasa_radius_file = self.sasa_radius_file_edit.text().strip()
         self.settings.save()
         self.accept()

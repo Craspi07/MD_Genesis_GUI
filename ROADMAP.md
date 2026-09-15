@@ -31,16 +31,21 @@ tree + single-project-at-a-time window into a real home screen.
       failure gets reported, the same way runner.py's stalled-poll fix
       started from a real bug report rather than a speculative sweep.
 
-## Phase 2 — Deeper analysis suite
-CG-only still, extends `app/analysis.py`'s existing `ANALYSIS_TOOLS`
-pattern. No new control-file keywords, only SPANA/analysis-tool CLI
-flags to verify.
-- [ ] RMSD / RMSF tools wired into the Analysis tab.
-- [ ] Contact map / distance-map tool.
-- [ ] SASA (solvent-accessible surface area) tool.
-- [ ] Per-tool result plotting (not just VMD hand-off) using the new
-      multi-panel canvas from Phase 6 if it lands first, otherwise a
-      simple single-panel plot now.
+## Phase 2 — Deeper analysis suite [x] done 2026-09-15
+CG-only still. RMSD/Rg/Q-value/contact-map/density were already present
+before this roadmap; this phase added the two genuinely missing tools.
+- [x] RMSD, Rg, Q-value, contact map -- already existed, unchanged.
+- [x] RMSF, via GENESIS's real two-tool pipeline (`avecrd_analysis` ->
+      `flccrd_analysis`), gated on a real `.psf`/`.pdb` existing in the
+      project directory rather than guessed by model type (see
+      DECISIONS.md -- only genesis_cg_tool's sequence/HPS pipeline is
+      confirmed to write a `.psf`; the PDB-input/AICG2+ pipeline is not).
+- [x] SASA, via `sasa_analysis`, gated the same way plus a required
+      `Settings.sasa_radius_file` (no guessable default -- see
+      DECISIONS.md) the user must point at a real radius-definition
+      file.
+- [ ] Per-tool result plotting still single-panel (existing `MplCanvas`)
+      -- multi-panel/zoom/export deferred to Phase 6 as planned.
 
 ## Phase 3 — Structural restraints & advanced ensembles
 Extends control-file templates: `[RESTRAINTS]` (positional/distance/
