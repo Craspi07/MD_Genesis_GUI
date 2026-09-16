@@ -24,6 +24,7 @@ class ModelCard:
     advanced: bool = False
     requires_pdb: bool = False
     requires_dna: bool = False
+    requires_all_atom_prebuilt: bool = False
 
 
 MODEL_CARDS: List[ModelCard] = [
@@ -55,6 +56,16 @@ MODEL_CARDS: List[ModelCard] = [
         advanced=True,
         requires_pdb=True,
         requires_dna=True,
+    ),
+    ModelCard(
+        ModelType.ALL_ATOM_CHARMM,
+        "All-atom (CHARMM, pre-built system)",
+        "A real explicit-solvent all-atom simulation of a system you've "
+        "already prepared elsewhere (CHARMM-GUI, VMD/PSFGEN, or CHARMM) -- "
+        "GENESIS itself never builds atomistic systems (see 'Pre-built "
+        "all-atom system' on the Input page). Needs your own topology/"
+        "parameter/PSF/PDB files, not a bare PDB or sequence.",
+        requires_all_atom_prebuilt=True,
     ),
 ]
 
@@ -103,6 +114,12 @@ class ModelPage(QWizardPage):
             if card.requires_dna and not state.has_dna_hint:
                 enabled = False
                 reason = "requires a DNA chain or sequence (not detected in your input)"
+            if card.requires_all_atom_prebuilt and not state.is_all_atom_prebuilt:
+                enabled = False
+                reason = "select 'Pre-built all-atom system (CHARMM)' on the Input page first"
+            if not card.requires_all_atom_prebuilt and state.is_all_atom_prebuilt:
+                enabled = False
+                reason = "not available for a pre-built all-atom system -- these are coarse-grained models"
             radio.setEnabled(enabled)
             radio.setToolTip(reason)
             if not enabled and radio.isChecked():
@@ -132,3 +149,4 @@ class InputState:
 
     is_sequence_mode: bool
     has_dna_hint: bool = False
+    is_all_atom_prebuilt: bool = False

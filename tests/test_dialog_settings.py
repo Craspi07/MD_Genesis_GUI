@@ -29,6 +29,27 @@ def test_dialog_save_persists_vmd_path():
     assert settings.vmd_path == r"D:\Tools\VMD\vmd.exe"
 
 
+def test_detect_vmd_fills_path_when_found(monkeypatch):
+    settings = Settings()
+    dialog = SettingsDialog(settings)
+    monkeypatch.setattr("ui.dialog_settings.detect_vmd_path", lambda: r"C:\VMD 2.0 alpha\vmd.exe")
+
+    dialog._on_detect_vmd()
+
+    assert dialog.vmd_path_edit.text() == r"C:\VMD 2.0 alpha\vmd.exe"
+    assert "Found" in dialog.vmd_status_label.text()
+
+
+def test_detect_vmd_reports_when_not_found(monkeypatch):
+    settings = Settings()
+    dialog = SettingsDialog(settings)
+    monkeypatch.setattr("ui.dialog_settings.detect_vmd_path", lambda: None)
+
+    dialog._on_detect_vmd()
+
+    assert "No VMD install found" in dialog.vmd_status_label.text()
+
+
 def test_health_check_worker_emits_items():
     bridge = WslBridge(distro="Ubuntu-24.04", wsl_exe=FAKE_WSL)
     worker = HealthCheckWorker(bridge)

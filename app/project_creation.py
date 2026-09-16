@@ -71,6 +71,8 @@ def create_project_files(
         dest = directory / Path(source_pdb_path).name
         shutil.copy(source_pdb_path, dest)
         created.append(dest.name)
+    elif project.input_mode == InputMode.ALL_ATOM_PREBUILT:
+        created.extend(copy_all_atom_files(project, local_directory))
     else:
         fasta_text = build_fasta_text(project.sequence, header=project.name)
         dest = directory / f"{project.name}.fasta"
@@ -78,6 +80,36 @@ def create_project_files(
         created.append(dest.name)
 
     return created
+
+
+def copy_all_atom_files(project: Project, local_directory: str) -> List[str]:
+    """Copies the pre-built CHARMM system's own files (topology/parameter/
+    stream/PSF/PDB) into the project directory, exactly the same
+    copy-in-then-reference-by-basename pattern already used for PDB-mode
+    CG input (see create_project_files). generate_project_control_file's
+    aa_* ControlFileConfig fields then reference just the basenames.
+
+    Missing/renamed source files raise FileNotFoundError -- unlike
+    genesis_cg_tool's outputs (which this app generates and thus knows
+    the shape of), these are files a user pointed at externally, so a
+    stale path must fail loudly rather than silently produce an
+    incomplete project.
+    """
+    directory = Path(local_directory)
+    copied: List[str] = []
+    all_sources = (
+        project.aa_top_source_paths
+        + project.aa_par_source_paths
+        + project.aa_str_source_paths
+        + [project.aa_psf_source_path, project.aa_pdb_source_path]
+    )
+    for source in all_sources:
+        if not source:
+            continue
+        dest = directory / Path(source).name
+        shutil.copy(source, dest)
+        copied.append(dest.name)
+    return copied
 
 
 def build_cg_commands(project: Project, input_filename: str) -> List[CgCommand]:
@@ -208,22 +240,84 @@ def run_cg_tool_pipeline(
     return CreationResult(True, "CG-tool pipeline completed.", log_text)
 
 
-def generate_project_control_file(project: Project, local_directory: str, force: bool = False) -> Path:
+def build_control_file_config(
+    project: Project,
+    local_directory: str,
+    output_prefix: Optional[str] = None,
+    n_steps: Optional[int] = None,
+    output_frequency: Optional[int] = None,
+    restart_file: Optional[str] = None,
+) -> ControlFileConfig:
+    """Builds the ControlFileConfig for `project`, branching once here on
+    ALL_ATOM_CHARMM vs. every CG model type -- the one place that
+    branch is decided, reused by generate_project_control_file (a real
+    run) and app/benchmark.py (a short timed run under a different
+    output_prefix/n_steps). Before this was factored out, benchmark.py
+    duplicated only the CG-shaped half of this logic inline, which
+    silently couldn't benchmark an all-atom project at all (it gated on
+    finding a .top/.gro file, which an all-atom project never has) --
+    see DECISIONS.md.
+
+    `output_prefix`/`n_steps`/`output_frequency` default to the
+    project's own name/parameters; benchmark.py overrides all three for
+    a short per-preset run. `restart_file` set means "continue from a
+    restart file" (Run tab's Continue button).
+    """
     directory = Path(local_directory)
+    output_prefix = output_prefix or project.name
+    n_steps = project.parameters.n_steps if n_steps is None else n_steps
+    output_frequency = project.parameters.output_frequency if output_frequency is None else output_frequency
+
+    if project.model_type == ModelType.ALL_ATOM_CHARMM:
+        # Files were copied in by copy_all_atom_files() under their own
+        # basenames; box size comes from the user (no tutorial-derived
+        # default makes sense for an already-built system -- see
+        # ui/page_all_atom_input.py and DECISIONS.md).
+        return ControlFileConfig(
+            top_file="",
+            gro_file="",
+            output_prefix=output_prefix,
+            temperature_k=project.parameters.temperature_k,
+            n_steps=n_steps,
+            timestep_fs=project.parameters.timestep_fs,
+            output_frequency=output_frequency,
+            langevin_friction=project.parameters.langevin_friction,
+            ensemble=project.parameters.ensemble,
+            pressure_atm=project.parameters.pressure_atm,
+            use_position_restraints=project.parameters.use_position_restraints,
+            position_restraint_force_constant=project.parameters.position_restraint_force_constant,
+            remd_enabled=project.parameters.remd_enabled,
+            remd_exchange_period=project.parameters.remd_exchange_period,
+            remd_temperatures=project.parameters.remd_temperatures,
+            gamd_enabled=project.parameters.gamd_enabled,
+            gamd_update_period=project.parameters.gamd_update_period,
+            gamd_sigma0_pot=project.parameters.gamd_sigma0_pot,
+            box_x=project.aa_box_x,
+            box_y=project.aa_box_y,
+            box_z=project.aa_box_z,
+            engine=project.resources.engine.value,
+            aa_top_files=[Path(p).name for p in project.aa_top_source_paths],
+            aa_par_files=[Path(p).name for p in project.aa_par_source_paths],
+            aa_str_files=[Path(p).name for p in project.aa_str_source_paths],
+            aa_psf_file=Path(project.aa_psf_source_path).name if project.aa_psf_source_path else None,
+            aa_pdb_file=Path(project.aa_pdb_source_path).name if project.aa_pdb_source_path else None,
+            restart_file=restart_file,
+        )
+
     top_files = list(directory.glob(f"{project.name}*.top"))
     gro_files = list(directory.glob(f"{project.name}*.gro"))
     top_name = top_files[0].name if top_files else f"{project.name}.top"
     gro_name = gro_files[0].name if gro_files else f"{project.name}.gro"
 
     box_x, box_y, box_z = default_box_size(project.model_type, project.parameters.box_size_nm)
-    config = ControlFileConfig(
+    return ControlFileConfig(
         top_file=top_name,
         gro_file=gro_name,
-        output_prefix=project.name,
+        output_prefix=output_prefix,
         temperature_k=project.parameters.temperature_k,
-        n_steps=project.parameters.n_steps,
+        n_steps=n_steps,
         timestep_fs=project.parameters.timestep_fs,
-        output_frequency=project.parameters.output_frequency,
+        output_frequency=output_frequency,
         langevin_friction=project.parameters.langevin_friction,
         ensemble=project.parameters.ensemble,
         pressure_atm=project.parameters.pressure_atm,
@@ -239,5 +333,12 @@ def generate_project_control_file(project: Project, local_directory: str, force:
         box_y=box_y,
         box_z=box_z,
         engine=project.resources.engine.value,
+        restart_file=restart_file,
     )
+
+
+def generate_project_control_file(
+    project: Project, local_directory: str, force: bool = False, restart_file: Optional[str] = None
+) -> Path:
+    config = build_control_file_config(project, local_directory, restart_file=restart_file)
     return write_control_file(config, project.model_type, local_directory, filename="run.inp", force=force)

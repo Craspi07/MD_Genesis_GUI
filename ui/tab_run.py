@@ -117,38 +117,18 @@ class RunTab(QWidget):
         self._reset_plot_state()
 
     def _on_continue(self) -> None:
-        from app.control_file import ControlFileConfig, default_box_size, write_control_file
+        from app.project_creation import generate_project_control_file
 
         rst_name = f"{self.project.name}.rst"
-        top_files = list(Path(self.local_directory).glob(f"{self.project.name}*.top"))
-        gro_files = list(Path(self.local_directory).glob(f"{self.project.name}*.gro"))
-        box_x, box_y, box_z = default_box_size(self.project.model_type, self.project.parameters.box_size_nm)
-        config = ControlFileConfig(
-            top_file=top_files[0].name if top_files else f"{self.project.name}.top",
-            gro_file=gro_files[0].name if gro_files else f"{self.project.name}.gro",
-            output_prefix=self.project.name,
-            temperature_k=self.project.parameters.temperature_k,
-            n_steps=self.project.parameters.n_steps,
-            timestep_fs=self.project.parameters.timestep_fs,
-            output_frequency=self.project.parameters.output_frequency,
-            langevin_friction=self.project.parameters.langevin_friction,
-            ensemble=self.project.parameters.ensemble,
-            pressure_atm=self.project.parameters.pressure_atm,
-            use_position_restraints=self.project.parameters.use_position_restraints,
-            position_restraint_force_constant=self.project.parameters.position_restraint_force_constant,
-            remd_enabled=self.project.parameters.remd_enabled,
-            remd_exchange_period=self.project.parameters.remd_exchange_period,
-            remd_temperatures=self.project.parameters.remd_temperatures,
-            gamd_enabled=self.project.parameters.gamd_enabled,
-            gamd_update_period=self.project.parameters.gamd_update_period,
-            gamd_sigma0_pot=self.project.parameters.gamd_sigma0_pot,
-            restart_file=rst_name,
-            box_x=box_x,
-            box_y=box_y,
-            box_z=box_z,
-            engine=self.project.resources.engine.value,
+        # Shared with fresh-project creation (app/project_creation.py) so a
+        # continuation run gets the same real per-model-type keyword
+        # handling as a fresh one -- this used to duplicate only the CG
+        # half of that logic inline, which broke for an all-atom project
+        # (missing aa_top_files/aa_psf_file/etc., no box fallback). See
+        # DECISIONS.md.
+        generate_project_control_file(
+            self.project, self.local_directory, force=True, restart_file=rst_name
         )
-        write_control_file(config, self.project.model_type, self.local_directory, filename="run.inp", force=True)
         self._start_run(is_continuation=True)
 
     def _on_stop(self) -> None:

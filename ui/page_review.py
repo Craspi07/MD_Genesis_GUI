@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QProgressBar,
 )
 
-from app.project import Project
+from app.project import Project, ModelType
 from app.project_creation import (
     local_directory_for,
     create_project_files,
@@ -39,10 +39,15 @@ class ProjectCreationWorker(QObject):
     def run(self) -> None:
         try:
             create_project_files(self.project, self.local_directory, self.source_pdb_path)
-            result = run_cg_tool_pipeline(self.bridge, self.project, self.local_directory)
-            if not result.success:
-                self.finished.emit(False, result.message)
-                return
+            if self.project.model_type != ModelType.ALL_ATOM_CHARMM:
+                # All-atom mode uses an already-prepared system (copied in by
+                # create_project_files -> copy_all_atom_files) -- there's no
+                # CG-tool pipeline to run for it (GENESIS User Guide 2.0.0
+                # Sec. 4.1; see DECISIONS.md).
+                result = run_cg_tool_pipeline(self.bridge, self.project, self.local_directory)
+                if not result.success:
+                    self.finished.emit(False, result.message)
+                    return
             generate_project_control_file(self.project, self.local_directory)
         except Exception as exc:  # noqa: BLE001 - surface any failure to the UI
             self.finished.emit(False, str(exc))

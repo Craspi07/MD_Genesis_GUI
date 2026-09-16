@@ -2,6 +2,134 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-16 — All-atom mode wired into the New Project wizard
+
+Reported directly: "GUI do not have all atom simulation and other
+features added." Correct -- Phase 5 (2026-09-16, earlier the same day)
+had shipped a fully verified, tested `ALL_ATOM_CHARMM` control-file/
+template layer, but explicitly punted on wizard integration as
+out-of-scope for that pass. With no way to create such a project from
+the GUI, the feature was effectively invisible. This closes that gap.
+
+**Input page**: added a third mode, "Pre-built all-atom system
+(CHARMM)," alongside the existing PDB/sequence radio buttons. Selecting
+it shows a short explanatory label (GENESIS never builds atomistic
+systems itself -- Sec. 4.1) rather than a file picker on this page; the
+actual pickers live on a new dedicated page, because trying to reuse
+the PDB/sequence page's `QStackedWidget` layout for five file fields
+plus box dimensions would have made that page's code shape mismatch
+its purpose.
+
+**New `ui/page_all_atom_input.py`**: topfile(s)/parfile(s) (required,
+multi-file via a small `_FileListWidget` helper: list + Add/Remove),
+optional strfile(s), single psffile/pdbfile pickers, and box x/y/z
+(required, no default -- must match whatever box the user's own setup
+tool already built). Only reachable when all-atom mode is selected.
+
+**Conditional page flow**: `NewProjectWizard` now assigns explicit page
+IDs from `addPage()` and overrides `nextId()` with one branch: from the
+Model page, skip straight to Parameters unless the Input page's
+all-atom mode is selected, in which case go to the new All-Atom Files
+page first. This is the standard Qt pattern for a wizard whose page
+count depends on an earlier answer; Qt's own back-navigation history
+handles skipping the same page on Back automatically.
+
+**Model page**: added an "All-atom (CHARMM, pre-built system)" card,
+gated by a new `ModelCard.requires_all_atom_prebuilt` flag -- enabled
+only when the Input page's all-atom mode is active, and every CG card
+disabled in that mode (a pre-built all-atom system was never going to
+be a coarse-grained model). This mirrors the existing `requires_pdb`/
+`requires_dna` gating pattern exactly.
+
+**`app/project_creation.py`**: new `copy_all_atom_files()` copies the
+five source files into the project directory under their own
+basenames -- the exact same "copy the external file in, then reference
+it by basename" pattern PDB mode already used, chosen deliberately over
+inventing a WSL-relative-path scheme, since consistency with an
+already-proven pattern is lower risk than a new one. `Project` gained
+`aa_top_source_paths`/`aa_par_source_paths`/`aa_str_source_paths`/
+`aa_psf_source_path`/`aa_pdb_source_path`/`aa_box_x/y/z` and
+`InputMode.ALL_ATOM_PREBUILT`.
+
+**Real gap caught and closed while wiring this up, not just UI
+plumbing**: `ui/page_parameters.py`'s GaMD checkbox and `ui/
+page_resources.py`'s REMD checkbox are shared across every model type
+(not gated by model_type) -- so a user could enable REMD/GaMD, then
+pick all-atom mode, and `generate_project_control_file`'s original
+AA branch (written in the earlier Phase 5 pass, before wizard
+integration existed to exercise it) would have silently dropped those
+settings, since `all_atom_charmm.j2` didn't render `[REMD]`/`[GAMD]`
+sections at all yet. Fixed by factoring those sections out of
+`_common_sections.j2` into a shared `resources/templates/
+_remd_gamd_sections.j2`, included by both templates -- all-atom mode
+now gets the exact same REMD/GaMD support Phase 4 built for CG, and the
+CG template's rendered output is unchanged (confirmed: every existing
+Phase 3/4 test still passes byte-for-byte after the refactor).
+
+**Second real gap, same root cause**: `ui/tab_run.py`'s "Continue from
+restart file" and `app/benchmark.py`'s benchmark sweep both built their
+own `ControlFileConfig` inline, duplicating only the CG-shaped half of
+what `generate_project_control_file` already did correctly --
+`_on_continue` would have raised (missing box/aa_* fields) and
+`run_benchmark` would have refused to run at all (it gated on finding a
+`.top`/`.gro` file, which an all-atom project never produces) for an
+`ALL_ATOM_CHARMM` project. Factored the shared logic into
+`app/project_creation.py`'s new `build_control_file_config()`, now the
+single place that branches on model type, reused by a fresh project, a
+continuation run, and a benchmark preset alike -- this is the second
+time in one day duplicated control-file-building logic silently missed
+the all-atom branch, which is itself the reason it's now factored out
+rather than fixed in each of the three call sites separately.
+
+**Engine gating**: `ui/page_resources.py`'s engine combo is now locked
+to atdyn (disabled entirely) when all-atom mode is selected --
+`cgdyn`'s own `-h ctrl_all` output (confirmed earlier this session) and
+its `RESIDCG`-only force-field scope mean it has no CHARMM/PME support;
+offering it as a choice for an all-atom project would be a provable
+error, not merely unconfirmed, so it's disabled rather than merely
+flagged.
+
+**Explicitly not done in this pass** (see ROADMAP.md): AMBER input
+mode, multi-chain/homo-oligomer all-atom setup, and updating the
+Analysis tab's RMSD/Rg/Q-value/contact-map tools to use `psffile`/
+`pdbfile` instead of `grotopfile`/`grocrdfile` for an all-atom project
+(they currently would generate a wrong/unusable analysis control file
+for one) -- a real, separately-scoped gap, not silently ignored.
+
+## 2026-09-16 — VMD path: auto-detect + fixing "no way to set it" discoverability
+
+Reported: "vmd is not found in the path although it is installed by
+default. Also, there is no option for setting button in GUI to set the
+path manually." The VMD path field (with a Browse... button) has
+existed in the Settings dialog since earlier this session -- the real
+problem was two-fold:
+
+1. **Discoverability**: the dialog was only reachable via
+   `Tools > Health Check...`. A user looking for "where do I set the
+   VMD path" has no reason to click something labeled "Health Check."
+   Renamed the menu action to `Tools > Settings...` (`ui/main_window.
+   py`) -- the dialog itself still opens with its existing "Setup &
+   Health Check" title, so that context isn't lost, but the menu entry
+   now matches what a user would actually search for.
+2. **The default path itself doesn't match every real VMD install**:
+   `Settings.vmd_path` only ever had one hardcoded guess
+   (`C:\Program Files\University of Illinois\VMD\vmd.exe`). Real VMD
+   installers, including the 2.x alpha builds discussed earlier this
+   session, commonly install under a version-suffixed folder instead
+   (e.g. "VMD 2.0 alpha", "VMD 1.9.4a55") -- so "installed by default"
+   can still miss this app's one guessed path.
+
+Added `app/vmd_detect.py`'s `detect_vmd_path()`: searches a small list
+of real install roots (`Program Files`/`Program Files (x86)`, with and
+without the "University of Illinois" vendor folder) plus any
+version-suffixed sibling folder at each root, rather than trusting one
+hardcoded path. Wired to a new "Detect" button in the Settings dialog
+next to the existing Browse... button -- fills the field and reports
+what it found, or says plainly that nothing was found (directing the
+user to Browse... manually) rather than guessing further. This mirrors
+the existing "Detect installed distros" pattern already used for the
+WSL distro field.
+
 ## 2026-09-16 — File > Open Project
 
 Requested directly: reopening an already-created project previously

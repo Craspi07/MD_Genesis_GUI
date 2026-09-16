@@ -2,6 +2,7 @@ from pathlib import Path
 
 from app.project import Project, InputMode, ModelType
 from app.project_creation import (
+    copy_all_atom_files,
     create_project_files,
     build_cg_commands,
     run_cg_tool_pipeline,
@@ -193,3 +194,72 @@ def test_generate_project_control_file(tmp_path: Path):
     text = path.read_text()
     assert "myproj.top" in text
     assert "myproj.gro" in text
+
+
+# -- Roadmap Phase 5 wizard integration: all-atom CHARMM --------------------
+def _all_atom_source_files(tmp_path: Path) -> Path:
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "top_all36_prot.rtf").write_text("* topology\n")
+    (source_dir / "par_all36m_prot.prm").write_text("* parameters\n")
+    (source_dir / "input.psf").write_text("PSF\n")
+    (source_dir / "input.pdb").write_text("ATOM\n")
+    return source_dir
+
+
+def _all_atom_project(tmp_path: Path) -> Project:
+    source_dir = _all_atom_source_files(tmp_path)
+    project = Project(
+        name="myaa",
+        directory="~/genesis_projects/myaa",
+        model_type=ModelType.ALL_ATOM_CHARMM,
+        input_mode=InputMode.ALL_ATOM_PREBUILT,
+    )
+    project.aa_top_source_paths = [str(source_dir / "top_all36_prot.rtf")]
+    project.aa_par_source_paths = [str(source_dir / "par_all36m_prot.prm")]
+    project.aa_psf_source_path = str(source_dir / "input.psf")
+    project.aa_pdb_source_path = str(source_dir / "input.pdb")
+    project.aa_box_x = 68.26
+    project.aa_box_y = 80.24
+    project.aa_box_z = 66.59
+    return project
+
+
+def test_copy_all_atom_files_copies_every_source_file(tmp_path: Path):
+    project = _all_atom_project(tmp_path)
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+
+    copied = copy_all_atom_files(project, str(project_dir))
+
+    assert set(copied) == {"top_all36_prot.rtf", "par_all36m_prot.prm", "input.psf", "input.pdb"}
+    for name in copied:
+        assert (project_dir / name).exists()
+
+
+def test_create_project_files_all_atom_prebuilt_mode_copies_files(tmp_path: Path):
+    project = _all_atom_project(tmp_path)
+    project_dir = tmp_path / "proj"
+
+    created = create_project_files(project, str(project_dir))
+
+    assert "project.json" in created
+    assert "input.psf" in created
+    assert "input.pdb" in created
+    assert (project_dir / "input.psf").exists()
+
+
+def test_generate_project_control_file_all_atom_charmm(tmp_path: Path):
+    project = _all_atom_project(tmp_path)
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    copy_all_atom_files(project, str(project_dir))
+
+    path = generate_project_control_file(project, str(project_dir))
+
+    text = path.read_text()
+    assert "topfile = top_all36_prot.rtf" in text
+    assert "psffile = input.psf" in text
+    assert "pdbfile = input.pdb" in text
+    assert "forcefield          = CHARMM" in text
+    assert "box_size_x = 68.26" in text
