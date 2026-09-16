@@ -2,6 +2,48 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-16 — Roadmap Phase 6: plotting upgrade (secondary axis, zoom/pan, CSV export)
+
+No GENESIS docs to verify this time -- pure UI/UX, the last of the six
+roadmap phases.
+
+**Real bug fixed**: `ui/tab_run.py`'s and `ui/tab_analysis.py`'s
+"temperature/energy over time" plots called `MplCanvas.set_series` for
+TOTAL_ENE/POTENTIAL_ENE and TEMPERATURE all on the same single y-axis.
+Energy terms run in the thousands (kcal/mol); temperature sits around
+300 K. On a shared axis, temperature's line is visually flattened to
+near-zero -- the plot silently failed to show what it claimed to show
+whenever both were plotted together, which is every time this button
+was used. `MplCanvas.set_series` gained an `axis="secondary"` option
+(a lazily created `Axes.twinx()`, its own y-axis label, lines tracked
+separately, and a combined legend built from both axes' handles so the
+legend doesn't silently drop the secondary series). `clear()` tears the
+secondary axis down (`figure.delaxes`) so re-plotting after a Start/
+Stop cycle or a fresh analysis run doesn't accumulate stale axes.
+
+**Zoom/pan/save**: matplotlib's own `NavigationToolbar2QT` (from
+`matplotlib.backends.backend_qtagg`, the same backend module already
+imported for `FigureCanvasQTAgg` -- no new dependency) added above the
+canvas in both tabs. This is standard matplotlib, not a custom
+control -- CLAUDE.md's "PyQt5 only, no web views" rule is unaffected
+since this is still pure Qt widgets.
+
+**CSV export**: added `app/csv_export.py` alongside the existing
+`app/excel_export.py`, reusing the same `AnalysisSeries`/
+`AnalysisMatrix` dataclasses so results collected by the Analysis tab
+don't need a second in-memory representation. CSV has no equivalent of
+Excel's multiple sheets, so `export_to_csv` writes one file per
+series/matrix into a user-chosen directory instead of one workbook.
+
+**Deliberately not attempted**: true multi-panel plotting (e.g., a
+per-replica REMD view). Phase 4 already deferred "Run tab support for
+viewing per-replica status" because REMD's real stdout output format
+(what `GenesisLogParser` would need to keep parsing) was never verified
+against an actual REMD run -- building a multi-panel layout for data
+this app can't yet reliably parse would be exactly the kind of
+speculative feature this whole roadmap's discipline avoids. Revisit
+once a real REMD run's log format is confirmed.
+
 ## 2026-09-16 — Roadmap Phase 5: all-atom CHARMM control-file support (layer only)
 
 Researched using the same GENESIS User Guide v2.0.0 PDF as Phases 3/4

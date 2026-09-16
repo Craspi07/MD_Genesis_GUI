@@ -107,3 +107,42 @@ def test_plot_temperature_energy_missing_log(tmp_path: Path):
     tab = _tab(tmp_path)
     tab._plot_temperature_energy()
     assert "No run.log" in tab.status_label.text()
+
+
+def test_plot_temperature_energy_puts_temperature_on_secondary_axis(tmp_path: Path):
+    tab = _tab(tmp_path)
+    log_text = (
+        "INFO:       STEP       TIME   TOTAL_ENE   POTENTIAL_ENE   TEMPERATURE\n"
+        "INFO:          0     0.0000    -1234.50       -1345.60        301.20\n"
+        "INFO:       1000     1.0000    -1235.10       -1346.05        300.80\n"
+    )
+    (tmp_path / "run.log").write_text(log_text)
+
+    tab._plot_temperature_energy()
+
+    assert "TEMPERATURE" in tab.canvas._lines2
+    assert "TOTAL_ENE" in tab.canvas._lines
+    assert "TEMPERATURE" not in tab.canvas._lines
+
+
+def test_export_csv_writes_files_for_accumulated_results(tmp_path: Path, monkeypatch):
+    tab = _tab(tmp_path)
+    output = tmp_path / "rmsd.txt"
+    output.write_text("0 0.0\n1 0.1\n")
+    tab._on_analysis_finished("rmsd", "rmsd", AnalysisRunResult(success=True, output_path=output, log=""), None)
+
+    export_dir = tmp_path / "csv_out"
+    from PyQt5.QtWidgets import QFileDialog
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(export_dir)))
+
+    tab._export_csv()
+
+    assert (export_dir / "RMSD (vs. initial frame).csv").exists()
+    assert "Exported 1 CSV file" in tab.status_label.text()
+
+
+def test_export_csv_reports_when_nothing_to_export(tmp_path: Path):
+    tab = _tab(tmp_path)
+    tab._export_csv()
+    assert "No analysis results" in tab.status_label.text()

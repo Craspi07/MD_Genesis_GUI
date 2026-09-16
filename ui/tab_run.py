@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QSplitter,
 )
 from PyQt5.QtCore import Qt
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 
 from app.log_parser import CG_SPECIFIC_TERMS
 from app.project import Project
@@ -81,8 +82,14 @@ class RunTab(QWidget):
         layout.addWidget(self.status_label)
 
         splitter = QSplitter(Qt.Vertical)
-        self.canvas = MplCanvas(title="Energy / Temperature", ylabel="value")
-        splitter.addWidget(self.canvas)
+        plot_container = QWidget()
+        plot_layout = QVBoxLayout(plot_container)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
+        self.canvas = MplCanvas(title="Energy / Temperature", ylabel="Energy")
+        self.plot_toolbar = NavigationToolbar2QT(self.canvas, plot_container)
+        plot_layout.addWidget(self.plot_toolbar)
+        plot_layout.addWidget(self.canvas)
+        splitter.addWidget(plot_container)
 
         self.raw_log_view = QPlainTextEdit()
         self.raw_log_view.setReadOnly(True)
@@ -176,7 +183,14 @@ class RunTab(QWidget):
 
         for name, ys in self._energy_series.items():
             xs = self._energy_x[-len(ys):]
-            self.canvas.set_series(name, xs, ys)
+            if name == "TEMPERATURE":
+                # Separate axis: temperature (~hundreds of K) shares no
+                # meaningful scale with energy terms (often thousands of
+                # kcal/mol) -- on one shared axis temperature's own
+                # variation was effectively invisible. See DECISIONS.md.
+                self.canvas.set_series(name, xs, ys, axis="secondary", ylabel="Temperature (K)")
+            else:
+                self.canvas.set_series(name, xs, ys)
         self.canvas.rescale_and_draw()
 
         if records:

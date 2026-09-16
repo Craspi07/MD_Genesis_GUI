@@ -148,15 +148,34 @@ keywords instead of RESIDCG's.
       CHARMM-GUI/PSFGEN rather than leave them guessing what "already
       prepared" means.
 
-## Phase 6 — Visual/plotting upgrade
-Once Phases 2-5 produce more kinds of data (per-replica, per-restraint,
-per-analysis-tool), upgrade `ui/widgets/mpl_canvas.py` from a single
-energy/temperature plot to multi-panel, zoomable, exportable plots
-reused across Run/Analysis/dashboard.
-- [ ] Multi-panel layout (energy, temperature, restraints, replica
-      exchange acceptance, etc. as separate panels, one canvas).
-- [ ] Zoom/pan + PNG/CSV export.
-- [ ] Reused by Phase 2's analysis plots and Phase 4's per-replica view.
+## Phase 6 — Visual/plotting upgrade [x] done 2026-09-16
+No new GENESIS keywords to verify -- this phase is pure UI/UX, and the
+one concrete plotting bug it fixes was found by actually looking at
+what the Run tab's plot does, not speculated in advance.
+- [x] Fixed a real bug: the Run tab's and Analysis tab's "temperature/
+      energy over time" plots put TEMPERATURE (~hundreds of K) on the
+      same y-axis as energy terms (often thousands of kcal/mol) --
+      temperature's own variation was effectively invisible next to
+      energy's much larger scale. `ui/widgets/mpl_canvas.py`'s
+      `MplCanvas.set_series` now takes an `axis="secondary"` option
+      (a lazily-created `twinx()` axis with its own label and a combined
+      legend), used for TEMPERATURE in both `ui/tab_run.py` and
+      `ui/tab_analysis.py`.
+- [x] Zoom/pan/save, via matplotlib's own `NavigationToolbar2QT` --
+      already ships with the `matplotlib` dependency this app already
+      has (no new dependency), added above the canvas in both the Run
+      and Analysis tabs.
+- [x] CSV export (`app/csv_export.py`), alongside the existing Excel
+      export -- one CSV file per accumulated series/matrix (CSV has no
+      "sheets" the way the Excel workbook does), reusing the same
+      `AnalysisSeries`/`AnalysisMatrix` dataclasses so no new analysis-
+      result representation was needed.
+- [ ] True multi-panel (stacked subplots for e.g. per-replica REMD
+      status) not implemented -- deferred along with Phase 4's own
+      "per-replica status" item, since REMD's real stdout output format
+      still isn't verified against an actual run (see Phase 4 notes),
+      and building a multi-panel layout for data this app can't yet
+      parse would be speculative.
 
 ## Sequencing note
 Phases are ordered by risk/dependency, not strictly by the order
