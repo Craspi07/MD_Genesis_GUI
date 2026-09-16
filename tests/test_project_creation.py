@@ -6,6 +6,7 @@ from app.project_creation import (
     create_project_files,
     build_cg_commands,
     run_cg_tool_pipeline,
+    run_minimization,
     generate_project_control_file,
     local_directory_for,
     local_projects_root_for,
@@ -263,3 +264,92 @@ def test_generate_project_control_file_all_atom_charmm(tmp_path: Path):
     assert "pdbfile = input.pdb" in text
     assert "forcefield          = CHARMM" in text
     assert "box_size_x = 68.26" in text
+
+
+def test_generate_project_control_file_all_atom_charmm_with_restart_file(tmp_path: Path):
+    project = _all_atom_project(tmp_path)
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    copy_all_atom_files(project, str(project_dir))
+
+    path = generate_project_control_file(project, str(project_dir), restart_file="myaa_min.rst")
+
+    text = path.read_text()
+    assert "rstfile = myaa_min.rst" in text
+
+
+def _settings() -> Settings:
+    s = Settings()
+    s.distro = "Ubuntu-24.04"
+    s.mpi_extra_args = "--mca btl vader,self"
+    s.total_cores = 4
+    return s
+
+
+def _install_fake_binary(bin_dir: Path, name: str, script_body: str) -> None:
+    path = bin_dir / name
+    path.write_text(f"#!/bin/bash\nset -e\n{script_body}\n")
+    path.chmod(0o755)
+
+
+def _install_fake_mpirun(bin_dir: Path) -> None:
+    # This dev container has no real mpirun; run_minimization goes through
+    # app.runner.build_wrapper_script (the same real launch shape used
+    # everywhere else in this app), which always wraps the engine binary in
+    # "mpirun -np N <mpi_args...> <engine> <control_file>". A thin
+    # passthrough that execs from the engine binary's name onward is enough
+    # to exercise the real code path end-to-end without a real MPI install.
+    _install_fake_binary(
+        bin_dir,
+        "mpirun",
+        'args=("$@"); for i in "${!args[@]}"; do '
+        'if [[ "${args[$i]}" == "atdyn" || "${args[$i]}" == "cgdyn" ]]; then '
+        'exec "${args[@]:$i}"; fi; done; '
+        'echo "fake mpirun: no engine binary found in: $@" >&2; exit 1',
+    )
+
+
+def test_run_minimization_success(tmp_path: Path, monkeypatch):
+    import os
+
+    project = _all_atom_project(tmp_path)
+    project.directory = str(tmp_path)  # so "cd {project.directory}" lands here for the fake bridge
+    project_dir = tmp_path
+    copy_all_atom_files(project, str(project_dir))
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _install_fake_mpirun(bin_dir)
+    _install_fake_binary(
+        bin_dir,
+        "atdyn",
+        'echo "fake minimize run"; touch myaa_min.rst myaa_min.dcd',
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+
+    result = run_minimization(_bridge(), project, str(project_dir), _settings())
+
+    assert result.success, result.log
+    assert (project_dir / "minimize.inp").exists()
+    assert (project_dir / "myaa_min.rst").exists()
+
+
+def test_run_minimization_reports_failure_when_no_restart_produced(tmp_path: Path, monkeypatch):
+    import os
+
+    project = _all_atom_project(tmp_path)
+    project.directory = str(tmp_path)
+    project_dir = tmp_path
+    copy_all_atom_files(project, str(project_dir))
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _install_fake_mpirun(bin_dir)
+    # fake atdyn that "succeeds" but writes nothing -- simulates a silent failure
+    _install_fake_binary(bin_dir, "atdyn", 'echo "did nothing"')
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+
+    result = run_minimization(_bridge(), project, str(project_dir), _settings())
+
+    assert not result.success
+    assert "restart file" in result.message

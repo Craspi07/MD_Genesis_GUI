@@ -20,7 +20,7 @@ from app.cgtool import (
     build_fasta_text,
     CgCommand,
 )
-from app.control_file import ControlFileConfig, default_box_size, write_control_file
+from app.control_file import ControlFileConfig, default_box_size, write_control_file, write_minimize_control_file
 from app.project import Project, ModelType, InputMode
 from app.settings import Settings
 from app.text_io import write_generated_text
@@ -110,6 +110,57 @@ def copy_all_atom_files(project: Project, local_directory: str) -> List[str]:
         shutil.copy(source, dest)
         copied.append(dest.name)
     return copied
+
+
+def run_minimization(bridge: WslBridge, project: Project, local_directory: str, settings: Settings) -> CreationResult:
+    """Runs a short energy-minimization job synchronously (blocking, same
+    "strip the backgrounding '&', append '; wait'" pattern app/benchmark.py
+    already uses) before the main MD control file is generated, for
+    ALL_ATOM_CHARMM projects.
+
+    Confirmed against the real genesis_tutorial_materials repo (GENESIS's
+    own team's tutorial-3.3, PDB 2QMT): a freshly solvated/ionized system
+    is always minimized before any MD stage there. Skipping this step is
+    a real, common cause of a first-few-steps blow-up -- discovered by
+    comparing this app's generated all-atom control file against that
+    real reference. See DECISIONS.md. Not called for CG model types:
+    their own tutorials go straight to MD with no separate minimization
+    stage.
+    """
+    from app.runner import build_wrapper_script
+
+    directory = Path(local_directory)
+    config = build_control_file_config(project, local_directory)
+    minimize_filename = "minimize.inp"
+    log_name = "minimize.log"
+    pgid_name = "minimize.pgid"
+    rst_name = f"{project.name}_min.rst"
+    write_minimize_control_file(config, local_directory, filename=minimize_filename, force=True)
+
+    # Clear any leftover output from a previous (e.g. failed) attempt --
+    # same "Open_file> already exists" collision risk already fixed
+    # elsewhere for benchmark presets and real runs (see DECISIONS.md).
+    bridge.run(f"cd {project.directory} && rm -f {log_name} {pgid_name} {rst_name} {project.name}_min.dcd")
+
+    script = build_wrapper_script(
+        project.resources, settings, control_file=minimize_filename, log_file=log_name, pgid_file=pgid_name
+    )
+    blocking_command = script.rstrip("&").strip() + "; wait"
+    result = bridge.run(f"cd {project.directory} && {blocking_command}", timeout=600)
+    log = (result.stdout or "") + (result.stderr or "")
+    if not result.ok:
+        return CreationResult(False, "Energy minimization failed to launch.", log)
+
+    log_result = bridge.run(f"cat {project.directory}/{log_name} 2>/dev/null")
+    log += "\n" + log_result.stdout
+
+    if not (directory / rst_name).exists():
+        return CreationResult(
+            False,
+            "Energy minimization did not produce a restart file -- check minimize.log in the project directory.",
+            log,
+        )
+    return CreationResult(True, "Energy minimization completed.", log)
 
 
 def build_cg_commands(project: Project, input_filename: str) -> List[CgCommand]:
