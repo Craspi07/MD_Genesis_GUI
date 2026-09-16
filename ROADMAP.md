@@ -47,16 +47,31 @@ before this roadmap; this phase added the two genuinely missing tools.
 - [ ] Per-tool result plotting still single-panel (existing `MplCanvas`)
       -- multi-panel/zoom/export deferred to Phase 6 as planned.
 
-## Phase 3 — Structural restraints & advanced ensembles
-Extends control-file templates: `[RESTRAINTS]` (positional/distance/
-dihedral), NPT/NPAT ensemble options, membrane-aware boundary settings.
-Needed before Phase 5's all-atom work reuses the same machinery.
-- [ ] `[SELECTION]`/`[RESTRAINTS]` sections for positional/distance/
-      dihedral restraints, exposed as an optional wizard page.
-- [ ] NPT/NPAT ensemble choice (currently NVT-only via Langevin) where
-      the underlying model supports it.
-- [ ] `# VERIFY`-marked membrane/PBC box options for future membrane
-      protein support.
+## Phase 3 — Structural restraints & advanced ensembles [x] done 2026-09-16
+Extends control-file templates directly -- the highest-risk phase so
+far, verified against GENESIS's own official User Guide PDF (v2.0.0,
+fetched live) rather than tutorial pages, since restraints/ensembles
+aren't tutorial-specific.
+- [x] `[SELECTION]`/`[RESTRAINTS]` section for positional (`POSI`)
+      restraints, wired to the wizard's "Apply position restraints"
+      checkbox -- which existed in the UI since before this roadmap but
+      was never actually consumed by control_file.py (a real dead
+      control, now fixed). Distance/dihedral restraints are documented
+      (User Guide Sec. 13.1) but not exposed in the UI yet -- POSI was
+      the one the app already had a UI affordance for; the others are a
+      natural follow-up, not implemented speculatively.
+- [x] NPT ensemble choice, gated to model types that actually have a
+      periodic box (`MODEL_TYPES_REQUIRING_BOX` -- AICG2P,
+      HPS_CONDENSATE); `render_control_file` now raises if NPT is
+      requested for a NOBC model type instead of silently emitting an
+      unusable file. NPAT/NPgT deliberately not implemented -- both are
+      membrane-specific (isotropy=XY-FIXED / SEMI-ISO) and this app has
+      no membrane/lipid support to exercise them against, so adding
+      them now would be untestable guessing.
+- [ ] Membrane/PBC options for future membrane protein support --
+      deferred; no membrane CG force field exists in this app yet, so
+      there's nothing to attach boundary options to (would be Phase 5+
+      scope, not this phase's).
 
 ## Phase 4 — Enhanced sampling (REMD / GaMD)
 Layered on top of whatever ensembles exist from Phase 3.

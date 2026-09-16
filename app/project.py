@@ -47,7 +47,10 @@ class SimulationParameters:
     langevin_friction: float = 0.01
     box_size_nm: Optional[float] = None
     n_copies: int = 1
+    ensemble: str = "NVT"  # GENESIS User Guide 2.0.0 Sec. 10.1: NVE/NVT/NPT/NPAT/NPgT; only NVT/NPT offered here
+    pressure_atm: float = 1.0  # GENESIS User Guide 2.0.0 Sec. 10.1 default target pressure for NPT
     use_position_restraints: bool = False
+    position_restraint_force_constant: float = 10.0  # matches the User Guide's own POSI restraint example (Sec. 16.4)
     random_seed: int = 12345
 
 

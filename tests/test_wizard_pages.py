@@ -2,6 +2,7 @@ from pathlib import Path
 
 from ui.page_input import InputPage
 from ui.page_model import ModelPage, InputState
+from ui.page_parameters import ParametersPage
 from app.project import ModelType
 
 
@@ -66,3 +67,38 @@ def test_model_page_allows_all_non_dna_in_pdb_mode():
     assert aicg2p_radio.isEnabled()
     assert not dna_radio.isEnabled()
     assert page.selected_model() == ModelType.AICG2P
+
+
+# -- Roadmap Phase 3: NPT ensemble + position restraints UI ------------------
+def test_ensemble_combo_disabled_for_model_types_without_a_box():
+    page = ParametersPage(lambda: ModelType.HPS_SINGLE)
+    page.initializePage()
+    assert not page.ensemble.isEnabled()
+    assert page.ensemble.currentText() == "NVT"
+
+
+def test_ensemble_combo_enabled_for_model_types_with_a_box():
+    page = ParametersPage(lambda: ModelType.AICG2P)
+    page.initializePage()
+    assert page.ensemble.isEnabled()
+
+
+def test_pressure_field_only_enabled_when_npt_selected():
+    page = ParametersPage(lambda: ModelType.AICG2P)
+    page.initializePage()
+    assert not page.pressure.isEnabled()
+
+    page.ensemble.setCurrentText("NPT")
+    assert page.pressure.isEnabled()
+
+    page.ensemble.setCurrentText("NVT")
+    assert not page.pressure.isEnabled()
+
+
+def test_restraint_force_constant_only_enabled_when_checked():
+    page = ParametersPage(lambda: ModelType.AICG2P)
+    page.initializePage()
+    assert not page.restraint_force_constant.isEnabled()
+
+    page.position_restraints.setChecked(True)
+    assert page.restraint_force_constant.isEnabled()

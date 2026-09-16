@@ -7,6 +7,9 @@ grocrdfile = {{ config.gro_file }}   # tutorial 11.1 pro.inp
 {% if config.restart_file -%}
 rstfile    = {{ config.restart_file }}   # tutorial 11.2 step 2.2
 {%- endif %}
+{% if config.use_position_restraints -%}
+groreffile = {{ config.gro_file }}   # GENESIS User Guide 2.0.0 Sec. 13.1: POSI needs reffile/ambreffile/groreffile
+{%- endif %}
 
 [OUTPUT]
 pdbfile = {{ config.output_prefix }}.pdb   # tutorial 11.1 pro.inp
@@ -32,6 +35,30 @@ rigid_bond = NO   # tutorial 11.1 pro.inp
 
 [ENSEMBLE]
 ensemble    = {{ config.ensemble }}
+{% if config.ensemble == "NVT" -%}
 tpcontrol   = LANGEVIN                       # tutorial 11.1/11.2/11.3
+{% else -%}
+tpcontrol   = LANGEVIN                       # VERIFY: NPT/NPAT/NPgT + LANGEVIN is confirmed for
+                                              # generic ATDYN in GENESIS User Guide 2.0.0 Sec. 10.1's
+                                              # compatibility table, but that table doesn't cover this
+                                              # CG-specific integrator (VVER_CG/cgdyn's VVER) at all --
+                                              # confirm against a real cgdyn/atdyn -h ctrl_all before
+                                              # trusting an NPT run
+{% endif -%}
 temperature = {{ config.temperature_k }}
 gamma_t     = {{ config.langevin_friction }}
+{% if config.ensemble == "NPT" -%}
+pressure    = {{ config.pressure_atm }}      # GENESIS User Guide 2.0.0 Sec. 10.1 (target pressure, atm)
+gamma_p     = 0.1                            # GENESIS User Guide 2.0.0 Sec. 10.1 (Langevin barostat friction default, ps^-1)
+{% endif -%}
+{% if config.use_position_restraints -%}
+
+[SELECTION]
+group1 = all                                 # GENESIS User Guide 2.0.0 Sec. 12.1; "all" restrains every CG bead
+
+[RESTRAINTS]
+nfunctions = 1                               # GENESIS User Guide 2.0.0 Sec. 13.1
+function1  = POSI                            # positional restraint; reference coords from [INPUT] groreffile
+constant1  = {{ config.position_restraint_force_constant }}
+select_index1 = 1                            # POSI takes exactly one group (Sec. 13.1)
+{% endif %}

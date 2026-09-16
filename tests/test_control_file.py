@@ -152,3 +152,48 @@ def test_write_control_file_preserves_manual_edits_unless_forced(tmp_path: Path)
 
     overwritten_path = write_control_file(_aicg2p_config(), ModelType.AICG2P, str(tmp_path), force=True)
     assert overwritten_path.read_text() != "; hand-edited by user\n"
+
+
+# -- Roadmap Phase 3: NPT ensemble + position restraints ---------------------
+def test_nvt_render_is_unchanged_by_new_optional_sections():
+    text = render_control_file(_config(box_x=180.0, box_y=180.0, box_z=180.0), ModelType.AICG2P)
+    assert "ensemble    = NVT" in text
+    assert "pressure" not in text
+    assert "[SELECTION]" not in text
+    assert "[RESTRAINTS]" not in text
+    assert "groreffile" not in text
+
+
+def test_npt_ensemble_adds_pressure_and_verify_marked_tpcontrol():
+    text = render_control_file(
+        _config(box_x=180.0, box_y=180.0, box_z=180.0, ensemble="NPT", pressure_atm=2.5), ModelType.AICG2P
+    )
+    assert "ensemble    = NPT" in text
+    assert "pressure    = 2.5" in text
+    assert "# VERIFY" in text  # tpcontrol+NPT compatibility for this CG integrator is not confirmed
+
+
+def test_npt_rejected_for_model_types_without_a_box():
+    with pytest.raises(ValueError):
+        render_control_file(_config(ensemble="NPT"), ModelType.HPS_SINGLE)
+
+
+def test_position_restraints_add_selection_and_restraints_sections():
+    text = render_control_file(
+        _config(box_x=180.0, box_y=180.0, box_z=180.0, use_position_restraints=True, position_restraint_force_constant=25.0),
+        ModelType.AICG2P,
+    )
+    assert "groreffile = system.gro" in text
+    assert "[SELECTION]" in text
+    assert "group1 = all" in text
+    assert "[RESTRAINTS]" in text
+    assert "function1  = POSI" in text
+    assert "constant1  = 25.0" in text
+    assert "select_index1 = 1" in text
+
+
+def test_position_restraints_work_without_a_box_too():
+    # POSI doesn't need a periodic box -- unlike NPT, this must stay legal
+    # for NOBC model types (HPS_SINGLE, PROTEIN_DNA).
+    text = render_control_file(_config(use_position_restraints=True), ModelType.HPS_SINGLE)
+    assert "[RESTRAINTS]" in text

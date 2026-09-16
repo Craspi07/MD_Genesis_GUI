@@ -6,6 +6,7 @@ from typing import Callable
 from PyQt5.QtWidgets import (
     QWizardPage,
     QFormLayout,
+    QComboBox,
     QDoubleSpinBox,
     QSpinBox,
     QCheckBox,
@@ -15,6 +16,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
+from app.control_file import MODEL_TYPES_REQUIRING_BOX
 from app.project import ModelType
 from app.presets import defaults_for
 
@@ -81,9 +83,44 @@ class ParametersPage(QWizardPage):
         self.n_copies.setToolTip("Number of chain copies placed in the slab box (condensate mode only).")
         form.addRow("Number of copies:", self.n_copies)
 
+        self.ensemble = QComboBox()
+        self.ensemble.addItems(["NVT", "NPT"])
+        self.ensemble.setToolTip(
+            "NVT (constant volume) is the default for every tutorial this app is built from. "
+            "NPT (constant pressure) is only offered for models with a periodic box; its "
+            "compatibility with this CG integrator isn't confirmed by GENESIS's general user "
+            "guide, so the generated file marks it # VERIFY (see DECISIONS.md)."
+        )
+        self.ensemble.currentTextChanged.connect(self._on_ensemble_changed)
+        form.addRow("Ensemble:", self.ensemble)
+
+        self.pressure = QDoubleSpinBox()
+        self.pressure.setRange(0.1, 1000.0)
+        self.pressure.setSuffix(" atm")
+        self.pressure.setValue(1.0)
+        self.pressure.setEnabled(False)
+        self.pressure.setToolTip("Target pressure for the NPT ensemble (GENESIS User Guide 2.0.0, Sec. 10.1).")
+        form.addRow("Pressure (NPT):", self.pressure)
+
+        restraint_row = QHBoxLayout()
         self.position_restraints = QCheckBox("Apply position restraints")
-        self.position_restraints.setToolTip("Restrain heavy atoms near their starting positions (useful during equilibration).")
-        form.addRow("", self.position_restraints)
+        self.position_restraints.setToolTip(
+            "Restrain every bead near its starting position (useful during equilibration). "
+            "GENESIS User Guide 2.0.0 Sec. 13.1 ([RESTRAINTS] function=POSI)."
+        )
+        self.position_restraints.toggled.connect(lambda checked: self.restraint_force_constant.setEnabled(checked))
+        restraint_row.addWidget(self.position_restraints)
+
+        self.restraint_force_constant = QDoubleSpinBox()
+        self.restraint_force_constant.setRange(0.1, 10000.0)
+        self.restraint_force_constant.setSuffix(" kcal/mol/A^2")
+        self.restraint_force_constant.setValue(10.0)
+        self.restraint_force_constant.setEnabled(False)
+        self.restraint_force_constant.setToolTip(
+            "Restraint force constant. 10.0 matches the GENESIS User Guide's own POSI restraint example."
+        )
+        restraint_row.addWidget(self.restraint_force_constant)
+        form.addRow("", restraint_row)
 
         self.eta_label = QLabel("Estimated wall time: not yet benchmarked. Use Tools > Benchmark after creating the project.")
         self.eta_label.setWordWrap(True)
@@ -112,6 +149,15 @@ class ParametersPage(QWizardPage):
             self.box_z.setValue(defaults.get("box_z_nm", 200.0))
         else:
             self.n_copies.setValue(1)
+
+        has_box = model_type in MODEL_TYPES_REQUIRING_BOX
+        self.ensemble.setCurrentText("NVT")
+        self.ensemble.setEnabled(has_box)
+        if not has_box:
+            self.pressure.setEnabled(False)
+
+    def _on_ensemble_changed(self, text: str) -> None:
+        self.pressure.setEnabled(text == "NPT")
 
     def _auto_box_size(self) -> None:
         # Rough heuristic: ~0.5 nm per residue extent plus margin, scaled by

@@ -2,6 +2,71 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-16 — Roadmap Phase 3: NPT ensemble + position restraints
+
+Verified against the real **GENESIS User Guide v2.0.0 PDF**
+(`mdgenesis.org/assets/fundamental/GENESIS_UserGuide_v2.0.0.pdf`, fetched
+live and parsed page-by-page since restraints/ensembles aren't covered by
+any tutorial page) rather than a tutorial, since this phase's features
+are general engine behavior, not one CG model's example. This is the
+first time this session verified against the actual engine reference
+manual instead of a tutorial or `-h ctrl_all` -- worth noting because it
+opens up the same source for later phases.
+
+**Position restraints (real bug fix)**: `ui/page_parameters.py`'s
+"Apply position restraints" checkbox and `SimulationParameters.
+use_position_restraints` have existed since before this roadmap, wired
+all the way through `Project.save`/`load` and into the wizard's project
+object -- but `app/control_file.py` never read the field. The checkbox
+did nothing. Confirmed the real GENESIS syntax (User Guide Sec. 13.1):
+`[RESTRAINTS] nfunctions=1, function1=POSI, constant1=<force
+constant>, select_index1=1`, referencing a `[SELECTION] group1=all`,
+with reference coordinates supplied via a new `[INPUT] groreffile =
+<same .gro as grocrdfile>` line (POSI's reference value is otherwise
+ignored per the docs -- confirmed groreffile is the correct keyword for
+GROMACS-format input, alongside the doc's reffile/ambreffile
+alternatives for other formats). Added `SimulationParameters.
+position_restraint_force_constant` (default 10.0, matching the User
+Guide's own POSI example in Sec. 16.4) since the checkbox alone had no
+way to set restraint strength, and wired both fields through
+`app/project_creation.py` and `ui/tab_run.py`'s `_on_continue` (the two
+places that build a `ControlFileConfig`).
+
+**NPT ensemble**: `ControlFileConfig.ensemble`/`SimulationParameters.
+ensemble` already existed but were dead too -- always "NVT", never
+exposed anywhere. Confirmed real `[ENSEMBLE]` keywords for NPT (Sec.
+10.1): `pressure` (atm), `gamma_p` (Langevin barostat friction, default
+0.1 ps^-1). Added an ensemble combo (NVT/NPT) and a pressure field to
+the wizard's Parameters page, gated to `MODEL_TYPES_REQUIRING_BOX`
+(AICG2P, HPS_CONDENSATE) since NPT needs a periodic box to compress —
+`render_control_file` now raises `ValueError` if NPT is requested for a
+NOBC model type (HPS_SINGLE, PROTEIN_DNA) instead of silently emitting
+a control file GENESIS would reject.
+
+One thing explicitly NOT carried over from the doc as confirmed: the
+User Guide's own ATDYN/SPDYN tpcontrol-compatibility table (Sec. 10.1)
+lists `LANGEVIN` as valid for NVT/NPT/NPAT/NPgT under generic ATDYN's
+`VVER`, but that table never mentions `VVER_CG` (atdyn's CG-specific
+integrator, used by every template this app renders for atdyn) or
+`cgdyn` at all -- both are CG-tool-specific binaries outside this
+general user guide's coverage, and this session already has one proven
+case (the original VVER_CG bug) where a real CG binary's behavior
+genuinely differed from generic engine expectations. Rather than repeat
+that mistake, `tpcontrol = LANGEVIN` is kept unchanged for NPT (least
+change from what's already proven working for NVT) but the generated
+`.inp` file itself gets an explicit `# VERIFY` block explaining exactly
+why, directing the user to check a real `atdyn`/`cgdyn -h ctrl_all`
+before trusting an NPT run. NPAT/NPgT ensembles were not implemented at
+all -- both require `isotropy` settings meaningful only for membrane
+systems (Sec. 10.1: `SEMI-ISO`/`XY-FIXED`), and this app has no
+membrane/lipid CG force field to exercise them against.
+
+Bonus: researching this phase's `[RESTRAINTS]`/`[ENSEMBLE]` sections in
+the User Guide PDF also surfaced the full `[REMD]` section reference
+(Ch. 15) needed for Roadmap Phase 4 -- saved for that phase rather than
+acted on now, but means Phase 4 starts with real keyword documentation
+already in hand instead of a fresh research pass.
+
 ## 2026-09-15 — Roadmap Phase 2: RMSF and SASA added to the Analysis tab
 
 RMSD/Rg/Q-value/contact-map/density already existed in `app/analysis.py`

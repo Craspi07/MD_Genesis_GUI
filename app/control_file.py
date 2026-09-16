@@ -38,6 +38,9 @@ class ControlFileConfig:
     output_frequency: int
     langevin_friction: float
     ensemble: str = "NVT"
+    pressure_atm: float = 1.0  # GENESIS User Guide 2.0.0 Sec. 10.1 default target pressure, only used when ensemble == "NPT"
+    use_position_restraints: bool = False
+    position_restraint_force_constant: float = 10.0  # GENESIS User Guide 2.0.0 Sec. 16.4's own POSI example
     restart_file: Optional[str] = None
     box_x: Optional[float] = None
     box_y: Optional[float] = None
@@ -103,6 +106,10 @@ def render_control_file(config: ControlFileConfig, model_type: ModelType) -> str
         config.box_x is None or config.box_y is None or config.box_z is None
     ):
         raise ValueError(f"{model_type.value} control files require box_x/box_y/box_z")
+    if config.ensemble != "NVT" and model_type not in MODEL_TYPES_REQUIRING_BOX:
+        # NPT/NPAT/NPgT couple to the periodic box; NOBC model types (HPS_SINGLE,
+        # PROTEIN_DNA) have no box for a barostat to act on.
+        raise ValueError(f"{model_type.value} has no periodic box; only NVT is valid for it")
     env = _environment()
     template = env.get_template(template_name)
     return template.render(config=config)

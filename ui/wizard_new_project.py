@@ -70,7 +70,10 @@ class NewProjectWizard(QWizard):
             output_frequency=self.parameters_page.output_frequency.value(),
             langevin_friction=self.parameters_page.friction.value(),
             n_copies=self.parameters_page.n_copies.value() if model_type == ModelType.HPS_CONDENSATE else 1,
+            ensemble=self.parameters_page.ensemble.currentText(),
+            pressure_atm=self.parameters_page.pressure.value(),
             use_position_restraints=self.parameters_page.position_restraints.isChecked(),
+            position_restraint_force_constant=self.parameters_page.restraint_force_constant.value(),
         )
         if model_type == ModelType.HPS_CONDENSATE:
             parameters.box_size_nm = self.parameters_page.box_z.value()
