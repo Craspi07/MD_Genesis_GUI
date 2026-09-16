@@ -26,6 +26,12 @@ class ModelType(str, Enum):
     HPS_SINGLE = "hps_single"  # Disordered protein / IDR — HPS
     HPS_CONDENSATE = "hps_condensate"  # Multi-chain condensate — HPS slab
     PROTEIN_DNA = "protein_dna"  # AICG2+ + 3SPN.2C (advanced)
+    ALL_ATOM_CHARMM = "all_atom_charmm"  # Explicit-solvent all-atom MD, CHARMM force field
+    # (Roadmap Phase 5). Per GENESIS User Guide 2.0.0 Sec. 4.1, GENESIS itself never builds
+    # atomistic systems (solvation, ions, missing atoms/H) -- that's done by an external setup
+    # tool (VMD/PSFGEN, CHARMM-GUI, or CHARMM) the same way genesis_cg_tool is the external
+    # setup tool for CG models. This model type takes an already-prepared topfile/parfile/
+    # psffile/pdbfile system and only generates the GENESIS control file for it.
 
 
 class InputMode(str, Enum):

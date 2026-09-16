@@ -244,6 +244,82 @@ def test_gamd_rejects_zero_update_period():
         render_control_file(_config(gamd_enabled=True, gamd_update_period=0), ModelType.HPS_SINGLE)
 
 
+# -- Roadmap Phase 5: all-atom CHARMM ----------------------------------------
+def _aa_config(**overrides):
+    base = dict(
+        top_file="",
+        gro_file="",
+        output_prefix="run",
+        temperature_k=300.0,
+        n_steps=1_000_000,
+        timestep_fs=2.0,
+        output_frequency=1000,
+        langevin_friction=1.0,
+        box_x=68.26,
+        box_y=80.24,
+        box_z=66.59,
+        aa_top_files=["../toppar/top_all36_prot.rtf"],
+        aa_par_files=["../toppar/par_all36m_prot.prm"],
+        aa_psf_file="../build/input.psf",
+        aa_pdb_file="../build/input.pdb",
+    )
+    base.update(overrides)
+    return ControlFileConfig(**base)
+
+
+def test_all_atom_charmm_renders_confirmed_sections():
+    text = render_control_file(_aa_config(), ModelType.ALL_ATOM_CHARMM)
+    for section in ["[INPUT]", "[OUTPUT]", "[DYNAMICS]", "[CONSTRAINTS]", "[ENSEMBLE]", "[ENERGY]", "[BOUNDARY]"]:
+        assert section in text
+    assert "topfile = ../toppar/top_all36_prot.rtf" in text
+    assert "psffile = ../build/input.psf" in text
+    assert "pdbfile = ../build/input.pdb" in text
+    assert "integrator     = VVER" in text
+    assert "integrator     = VVER_CG" not in text  # CG-only integrator must never appear for an all-atom run
+    assert "rigid_bond = YES" in text
+    assert "fast_water = YES" in text
+    assert "forcefield          = CHARMM" in text
+    assert "electrostatic       = PME" in text
+    assert "vdw_force_switch    = YES" in text
+
+
+def test_all_atom_charmm_optional_strfile_included_when_given():
+    with_str = render_control_file(_aa_config(aa_str_files=["../toppar/toppar_water_ions.str"]), ModelType.ALL_ATOM_CHARMM)
+    without_str = render_control_file(_aa_config(), ModelType.ALL_ATOM_CHARMM)
+    assert "strfile = ../toppar/toppar_water_ions.str" in with_str
+    assert "strfile" not in without_str
+
+
+def test_all_atom_charmm_requires_prepared_input_files():
+    with pytest.raises(ValueError):
+        render_control_file(_aa_config(aa_psf_file=None), ModelType.ALL_ATOM_CHARMM)
+    with pytest.raises(ValueError):
+        render_control_file(_aa_config(aa_pdb_file=None), ModelType.ALL_ATOM_CHARMM)
+    with pytest.raises(ValueError):
+        render_control_file(_aa_config(aa_top_files=None), ModelType.ALL_ATOM_CHARMM)
+
+
+def test_all_atom_charmm_requires_a_box_for_pme():
+    with pytest.raises(ValueError):
+        render_control_file(_aa_config(box_x=None, box_y=None, box_z=None), ModelType.ALL_ATOM_CHARMM)
+
+
+def test_all_atom_charmm_supports_npt_without_verify_caveat():
+    # Unlike CG's VVER_CG, plain VVER + NPT + LANGEVIN is directly confirmed
+    # by the User Guide's own compatibility table -- no # VERIFY needed here.
+    text = render_control_file(_aa_config(ensemble="NPT", pressure_atm=1.0), ModelType.ALL_ATOM_CHARMM)
+    assert "ensemble    = NPT" in text
+    assert "pressure    = 1.0" in text
+    assert "# VERIFY" not in text
+
+
+def test_all_atom_charmm_position_restraints_use_pdb_as_reffile():
+    text = render_control_file(_aa_config(use_position_restraints=True, position_restraint_force_constant=5.0), ModelType.ALL_ATOM_CHARMM)
+    assert "reffile = ../build/input.pdb" in text
+    assert "[RESTRAINTS]" in text
+    assert "constant1  = 5.0" in text
+
+
 def test_gamd_verify_comment_only_for_non_atdyn_engine():
     atdyn_text = render_control_file(
         _config(gamd_enabled=True, gamd_update_period=500, engine="atdyn"), ModelType.HPS_SINGLE

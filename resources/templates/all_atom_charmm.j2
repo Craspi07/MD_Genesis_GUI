@@ -1,0 +1,78 @@
+{# Explicit-solvent all-atom CHARMM control file (Roadmap Phase 5).
+   Self-contained -- deliberately does NOT include _common_sections.j2,
+   which is written entirely around this app's CG pipeline (VVER_CG/
+   cgdyn integrators, rigid_bond=NO, CG-scale timesteps, group1=all
+   restraint selection). All-atom MD needs different, real values for
+   nearly every one of those, confirmed against the GENESIS User Guide
+   2.0.0 (Ch. 4 [INPUT], Ch. 6 [ENERGY], Ch. 9 [CONSTRAINTS]) rather than
+   any CG tutorial -- see DECISIONS.md. Every "#" comment uses "#" only
+   (GENESIS's .inp parser does not accept ";"). #}
+[INPUT]
+topfile = {{ config.aa_top_files|join(', ') }}   # GENESIS User Guide 2.0.0 Sec. 4.6 CHARMM example
+parfile = {{ config.aa_par_files|join(', ') }}   # Sec. 4.6
+{% if config.aa_str_files -%}
+strfile = {{ config.aa_str_files|join(', ') }}   # Sec. 4.6 (e.g. toppar_water_ions.str)
+{% endif -%}
+psffile = {{ config.aa_psf_file }}   # Sec. 4.1.1: PSF holds the "whole system" atom connectivity
+pdbfile = {{ config.aa_pdb_file }}   # Sec. 4.1.1: the PSF-generation tool's own "processed" PDB
+{% if config.restart_file -%}
+rstfile = {{ config.restart_file }}
+{% endif -%}
+{% if config.use_position_restraints -%}
+reffile = {{ config.aa_pdb_file }}   # Sec. 4.4: POSI reference coords for an all-atom (PDB-format) system
+{% endif -%}
+
+[OUTPUT]
+pdbfile = {{ config.output_prefix }}.pdb
+dcdfile = {{ config.output_prefix }}.dcd
+rstfile = {{ config.output_prefix }}.rst
+# no logfile keyword: GENESIS writes to stdout, redirected by runner.py
+
+[DYNAMICS]
+integrator     = VVER                        # GENESIS User Guide 2.0.0 Sec. 10.1 compatibility table (plain
+                                              # ATDYN VVER, not this app's CG-only VVER_CG -- no VERIFY needed)
+nsteps         = {{ config.n_steps }}
+timestep       = {{ "%.4f"|format(config.timestep_fs / 1000.0) }}   # ps; from {{ config.timestep_fs }} fs
+eneout_period  = {{ config.output_frequency }}
+crdout_period  = {{ config.output_frequency }}
+rstout_period  = {{ config.output_frequency }}
+nbupdate_period = 10                         # GENESIS User Guide 2.0.0 Sec. 7.1 default
+
+[CONSTRAINTS]
+rigid_bond = YES                             # GENESIS User Guide 2.0.0 Sec. 9.4 CHARMM example (SHAKE/RATTLE on H bonds)
+fast_water = YES                             # Sec. 9.4 CHARMM example (SETTLE for water; water_model default TIP3 is correct for CHARMM)
+
+[ENSEMBLE]
+ensemble    = {{ config.ensemble }}
+tpcontrol   = LANGEVIN                       # Sec. 10.1: confirmed valid for plain ATDYN VVER in NVT/NPT/NPAT/NPgT
+temperature = {{ config.temperature_k }}
+gamma_t     = {{ config.langevin_friction }}
+{% if config.ensemble == "NPT" -%}
+pressure    = {{ config.pressure_atm }}      # Sec. 10.1 (target pressure, atm)
+gamma_p     = 0.1                            # Sec. 10.1 (Langevin barostat friction default, ps^-1)
+{% endif -%}
+{% if config.use_position_restraints -%}
+
+[SELECTION]
+group1 = all                                 # restrains every atom; Sec. 12.1
+
+[RESTRAINTS]
+nfunctions = 1                               # Sec. 13.1
+function1  = POSI
+constant1  = {{ config.position_restraint_force_constant }}
+select_index1 = 1
+{% endif %}
+
+[ENERGY]
+forcefield          = CHARMM                 # GENESIS User Guide 2.0.0 Sec. 6.1
+electrostatic       = PME                    # Sec. 6.2 default; needs a periodic box (enforced by MODEL_TYPES_REQUIRING_BOX)
+switchdist          = 10.0                   # Sec. 6.2 default (Angstrom)
+cutoffdist          = 12.0                   # Sec. 6.2 default (Angstrom)
+pairlistdist        = 13.5                   # Sec. 6.2 default (Angstrom)
+vdw_force_switch    = YES                    # Sec. 6.2: "Typically... should be specified in the case of CHARMM36"
+
+[BOUNDARY]
+type       = PBC                             # required for PME (Sec. 6.2)
+box_size_x = {{ config.box_x }}              # must match the box your own setup tool (CHARMM-GUI/PSFGEN) already built
+box_size_y = {{ config.box_y }}
+box_size_z = {{ config.box_z }}

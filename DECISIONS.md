@@ -2,6 +2,74 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-16 — Roadmap Phase 5: all-atom CHARMM control-file support (layer only)
+
+Researched using the same GENESIS User Guide v2.0.0 PDF as Phases 3/4
+(Ch. 4 `[INPUT]`, Ch. 6 `[ENERGY]`, Ch. 9 `[CONSTRAINTS]`). This phase
+changed shape the most once actually read: the original `ROADMAP.md`
+draft imagined this app running a solvation/ionization pipeline the way
+it runs `genesis_cg_tool` for CG. Sec. 4.1 says otherwise outright:
+"the users have to prepare input files... by using a setup tool" --
+CHARMM needs `top, par, psf, pdb` prepared via VMD/PSFGEN, CHARMM-GUI,
+or CHARMM itself; AMBER needs `prmtop, pdb/crd` via LEaP. GENESIS
+itself, like `genesis_cg_tool` for CG, is never the system-building
+tool -- it only ever consumes already-built files. So this app's real
+job for all-atom is identical in shape to what it already does for CG:
+turn a set of prepared input files into a correct control file, nothing
+more.
+
+Given that, Phase 5 shipped the control-file/template layer only --
+`ModelType.ALL_ATOM_CHARMM`, `resources/templates/all_atom_charmm.j2`,
+new `ControlFileConfig` fields (`aa_top_files`/`aa_par_files`/
+`aa_str_files`/`aa_psf_file`/`aa_pdb_file`), and validation in
+`render_control_file` (rejects the model type without all required
+files, or without a box) -- fully tested in `tests/test_control_file.
+py`. **Wizard/project-creation integration was deliberately not
+attempted in this pass**: there's no ModelPage card, no page for
+collecting the five file paths + box dimensions, and no
+`project_creation.py` logic to copy them into a project directory. That
+is real, well-defined remaining work (per Phase 1's own precedent of
+naming what's deferred rather than silently skipping it), not
+something rushed to appear complete.
+
+**Why a new template instead of extending `_common_sections.j2`**:
+that file is written entirely around this app's CG pipeline --
+`VVER_CG`/`cgdyn`'s `VVER` as the only two integrator branches,
+`rigid_bond = NO` hardcoded (fine for CG, wrong for real AA explicit
+solvent), CG-scale timesteps (5-20 fs) implied throughout, and the
+`[SELECTION]`/`[RESTRAINTS]`/`[REMD]`/`[GAMD]` additions from Phases
+3-4 all assume a CG bead system. Threading AA-specific branches through
+all of that would have made an already-dense shared file harder to
+verify line-by-line, for a phase whose whole discipline is "verify
+every line." `all_atom_charmm.j2` is self-contained and only reuses the
+Phase 3/4 keyword *knowledge* (NPT pressure/gamma_p, POSI restraints),
+not the file, so it can also skip [REMD]/[GAMD] entirely -- neither was
+implemented for AA in this pass either, though nothing here blocks
+adding them the same way CG got them.
+
+**A genuinely good outcome of using plain `VVER` instead of CG's
+`VVER_CG`**: every `# VERIFY` this session attached to NPT/REMD/GaMD's
+`tpcontrol`/engine compatibility existed specifically because
+`VVER_CG`/`cgdyn` fall outside the User Guide's own ATDYN/SPDYN
+compatibility tables. All-atom CHARMM mode uses plain ATDYN `VVER`,
+which *is* in those tables -- so NPT with `tpcontrol=LANGEVIN` is
+directly confirmed for it, no caveat needed. This is a real, structural
+difference between the CG and AA pipelines' risk profile, not
+carelessness in one or the other.
+
+**Confirmed CHARMM defaults used, none guessed**: `electrostatic=PME`
+(default, needs PBC -- Sec. 6.2), `switchdist=10.0`/`cutoffdist=12.0`/
+`pairlistdist=13.5` (Sec. 6.2 defaults), `vdw_force_switch=YES` ("should
+be specified in the case of CHARMM36", Sec. 6.2), `rigid_bond=YES`/
+`fast_water=YES` (Sec. 9.4's own CHARMM `[CONSTRAINTS]` example),
+`nbupdate_period=10` (Sec. 7.1 default -- deliberately not reusing the
+CG templates' `nbupdate_period=20`, which is cited to a CG tutorial,
+not a generic default). Box size is required from the user with no
+tutorial-style fallback (unlike CG's `DEFAULT_BOX_SIZE`): an all-atom
+box must match whatever box the user's own setup tool already built,
+and guessing one here risks silently mismatching a real prepared
+system.
+
 ## 2026-09-16 — Roadmap Phase 4: REMD (T-REMD) + GaMD
 
 Continued researching the same GENESIS User Guide v2.0.0 PDF used for

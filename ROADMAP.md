@@ -100,20 +100,53 @@ architecture.
       confirm the standard-output format `GenesisLogParser` would need
       to keep working hasn't been verified against a real run yet.
 
-## Phase 5 — All-atom MD pipeline
-The big one: CHARMM/AMBER force fields, solvation + ion placement,
-real all-atom protein (and protein-complex/homo-oligomer) MD via
-`atdyn`/`spdyn`, as a genuine second pipeline alongside the existing CG
-one (not a replacement).
-- [ ] New `ModelType` values (e.g. `ALL_ATOM`) and a parallel
-      `resources/templates/all_atom.j2`.
-- [ ] Solvation/ionization step (either shelling out to a real tool the
-      way `genesis_cg_tool` is driven now, or documenting what the user
-      must pre-process, per the earlier PDB-cleaning discussion).
-- [ ] Multi-chain/homo-oligomer AA setup (N copies of one chain,
-      symmetric or independent).
-- [ ] Engine-conditional keyword handling the same way CG's
-      `VVER`/`VVER_CG` split was handled.
+## Phase 5 — All-atom MD pipeline [~] control-file layer done 2026-09-16; wizard integration not started
+The big one, and the one that most changed shape once actually
+researched. GENESIS User Guide 2.0.0 Sec. 4.1 confirms GENESIS itself
+never builds atomistic systems (adding missing atoms/H, solvating,
+placing ions) -- that's always done by an external setup tool (VMD/
+PSFGEN, CHARMM-GUI, or CHARMM for the CHARMM force field; LEaP for
+AMBER), the exact same relationship this app already has with
+`genesis_cg_tool` for CG models. So "the all-atom pipeline" isn't a
+system-building pipeline this app runs -- it's control-file generation
+for a system the user already built elsewhere, same shape as every CG
+model type, just with CHARMM's real [INPUT]/[ENERGY]/[CONSTRAINTS]
+keywords instead of RESIDCG's.
+- [x] New `ModelType.ALL_ATOM_CHARMM` + `resources/templates/
+      all_atom_charmm.j2` (deliberately NOT built on `_common_sections.
+      j2`, which is entirely CG-specific -- VVER_CG, rigid_bond=NO,
+      CG-scale timesteps). Confirmed real CHARMM-force-field defaults
+      (User Guide Ch. 4/6/9): `topfile`/`parfile`/`strfile`/`psffile`/
+      `pdbfile` in `[INPUT]`, `electrostatic=PME`/`switchdist=10.0`/
+      `cutoffdist=12.0`/`pairlistdist=13.5`/`vdw_force_switch=YES` in
+      `[ENERGY]`, `rigid_bond=YES`/`fast_water=YES` (SHAKE+SETTLE) in
+      `[CONSTRAINTS]`, plain `VVER` integrator (not this app's CG-only
+      `VVER_CG`) -- and because it's plain ATDYN `VVER`, Phase 3/4's
+      NPT/restraints support apply to it with no `# VERIFY` caveat,
+      unlike CG's `VVER_CG`/cgdyn uncertainty.
+- [x] `render_control_file` rejects `ALL_ATOM_CHARMM` without all four
+      required input files, and without a box (PME needs one) --
+      same "raise instead of guess" pattern as Phase 3's NPT/NOBC guard.
+- [ ] **Not done**: wizard/project-creation integration. There's no UI
+      path yet to create an `ALL_ATOM_CHARMM` project -- no ModelPage
+      card, no page collecting the five file paths + box dimensions, no
+      `project_creation.py` wiring to copy those files into the project
+      directory. The control-file layer is complete and tested
+      (`tests/test_control_file.py`); reaching it currently requires
+      constructing `ControlFileConfig`/calling `write_control_file`
+      directly, or hand-editing `project.json`'s `model_type` and
+      creating `run.inp` via the Files tab. This is real, scoped
+      remaining work, not a stub -- a natural next increment once
+      there's a concrete AA project to test the wizard flow against.
+- [ ] AMBER (`prmtopfile`/`ambcrdfile`) and multi-chain/homo-oligomer AA
+      setup (N copies of one prepared chain) -- documented in the User
+      Guide (Ch. 4.1.2) but not implemented; homo-oligomer AA setup
+      also depends on the external setup tool (e.g. CHARMM-GUI's own
+      "Multimer" builder), same as single-chain AA does.
+- [ ] Solvation/ionization "how-to" guidance for users -- not a code
+      change, but the wizard integration above should point users at
+      CHARMM-GUI/PSFGEN rather than leave them guessing what "already
+      prepared" means.
 
 ## Phase 6 — Visual/plotting upgrade
 Once Phases 2-5 produce more kinds of data (per-replica, per-restraint,
