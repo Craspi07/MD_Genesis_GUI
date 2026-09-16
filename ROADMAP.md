@@ -152,6 +152,20 @@ keywords instead of RESIDCG's.
       broken (or, for benchmarking, refused to run at all) for an
       all-atom project; both now go through the same shared
       `build_control_file_config()` all model types use.
+- [x] **Two real correctness bugs found and fixed** (2026-09-16) by
+      cloning and diffing against the real `genesis_tutorial_materials`
+      GitHub repo (GENESIS's own team's tutorial-3.3, PDB 2QMT) rather
+      than guessing what a "validation protein" should look like:
+      (1) the POSI restraint selection was `group1 = all`, restraining
+      solvent along with the protein and defeating equilibration's
+      purpose -- fixed to protein backbone only; (2) there was no
+      energy-minimization stage before MD, a real common cause of a
+      first-few-steps blow-up on a freshly solvated system -- fixed
+      with a new `all_atom_minimize.j2` template + `app/
+      project_creation.py`'s `run_minimization()`, run automatically
+      (no new checkbox) before every all-atom project's main `run.inp`
+      is generated. See DECISIONS.md for the full diff against the real
+      reference, including what already matched with no changes needed.
 - [ ] AMBER (`prmtopfile`/`ambcrdfile`) and multi-chain/homo-oligomer AA
       setup (N copies of one prepared chain) -- documented in the User
       Guide (Ch. 4.1.2) but not implemented; homo-oligomer AA setup

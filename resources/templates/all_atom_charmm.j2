@@ -65,7 +65,11 @@ gamma_p     = 0.1                            # Sec. 10.1 (Langevin barostat fric
 {% if config.use_position_restraints -%}
 
 [SELECTION]
-group1 = all                                 # restrains every atom; Sec. 12.1
+group1 = an:N or an:CA or an:C or an:O       # protein backbone only -- confirmed against the real
+                                              # genesis_tutorial_materials tutorial-3.3 equilibration
+                                              # INP2/INP3 (Protein G, PDB 2QMT); restraining "all" atoms
+                                              # would also restrain solvent, defeating equilibration's
+                                              # purpose (water needs to move freely around the solute)
 
 [RESTRAINTS]
 nfunctions = 1                               # Sec. 13.1

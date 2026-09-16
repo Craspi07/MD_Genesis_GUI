@@ -2,7 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from app.control_file import ControlFileConfig, render_control_file, write_control_file
+from app.control_file import (
+    ControlFileConfig,
+    render_control_file,
+    write_control_file,
+    render_minimize_control_file,
+    write_minimize_control_file,
+)
 from app.project import ModelType
 
 
@@ -338,6 +344,44 @@ def test_all_atom_charmm_position_restraints_use_pdb_as_reffile():
     assert "reffile = ../build/input.pdb" in text
     assert "[RESTRAINTS]" in text
     assert "constant1  = 5.0" in text
+
+
+def test_all_atom_charmm_position_restraints_only_restrain_backbone_not_solvent():
+    # Real bug found comparing against genesis_tutorial_materials tutorial-3.3
+    # (PDB 2QMT): restraining "all" atoms (this app's original CG-derived
+    # default) would also restrain solvent, defeating the point of
+    # equilibration -- only the protein backbone should be restrained.
+    text = render_control_file(_aa_config(use_position_restraints=True), ModelType.ALL_ATOM_CHARMM)
+    assert "group1 = an:N or an:CA or an:C or an:O" in text
+    assert "group1 = all" not in text
+
+
+def test_render_minimize_control_file_matches_real_tutorial_defaults():
+    text = render_minimize_control_file(_aa_config())
+    assert "[MINIMIZE]" in text
+    assert "method           = SD" in text
+    assert "nsteps           = 2000" in text
+    assert "contact_check       = YES" in text
+    assert "[DYNAMICS]" not in text  # minimization has no integrator/ensemble
+    assert "[ENSEMBLE]" not in text
+    assert "box_size_x = 68.26" in text
+
+
+def test_render_minimize_control_file_requires_input_files():
+    with pytest.raises(ValueError):
+        render_minimize_control_file(_aa_config(aa_psf_file=None))
+
+
+def test_render_minimize_control_file_requires_box():
+    with pytest.raises(ValueError):
+        render_minimize_control_file(_aa_config(box_x=None, box_y=None, box_z=None))
+
+
+def test_write_minimize_control_file(tmp_path: Path):
+    path = write_minimize_control_file(_aa_config(), str(tmp_path))
+    assert path.exists()
+    assert path.name == "minimize.inp"
+    assert "[MINIMIZE]" in path.read_text()
 
 
 def test_gamd_verify_comment_only_for_non_atdyn_engine():

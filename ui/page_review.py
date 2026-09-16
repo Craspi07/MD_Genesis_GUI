@@ -20,6 +20,7 @@ from app.project_creation import (
     local_directory_for,
     create_project_files,
     run_cg_tool_pipeline,
+    run_minimization,
     generate_project_control_file,
 )
 from app.settings import Settings
@@ -29,26 +30,44 @@ from app.wsl import WslBridge
 class ProjectCreationWorker(QObject):
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, bridge: WslBridge, project: Project, local_directory: str, source_pdb_path: Optional[str]):
+    def __init__(
+        self,
+        bridge: WslBridge,
+        project: Project,
+        local_directory: str,
+        source_pdb_path: Optional[str],
+        settings: Settings,
+    ):
         super().__init__()
         self.bridge = bridge
         self.project = project
         self.local_directory = local_directory
         self.source_pdb_path = source_pdb_path
+        self.settings = settings
 
     def run(self) -> None:
         try:
             create_project_files(self.project, self.local_directory, self.source_pdb_path)
-            if self.project.model_type != ModelType.ALL_ATOM_CHARMM:
-                # All-atom mode uses an already-prepared system (copied in by
-                # create_project_files -> copy_all_atom_files) -- there's no
-                # CG-tool pipeline to run for it (GENESIS User Guide 2.0.0
-                # Sec. 4.1; see DECISIONS.md).
+            if self.project.model_type == ModelType.ALL_ATOM_CHARMM:
+                # A freshly solvated/ionized system needs minimization before
+                # MD or it can blow up in the first few steps -- confirmed
+                # against the real genesis_tutorial_materials tutorial-3.3
+                # (PDB 2QMT), which always minimizes first. See DECISIONS.md.
+                min_result = run_minimization(self.bridge, self.project, self.local_directory, self.settings)
+                if not min_result.success:
+                    self.finished.emit(False, min_result.message)
+                    return
+                generate_project_control_file(
+                    self.project, self.local_directory, restart_file=f"{self.project.name}_min.rst"
+                )
+            else:
+                # CG models build their system via genesis_cg_tool -- unlike
+                # all-atom mode, there's no already-prepared system to copy in.
                 result = run_cg_tool_pipeline(self.bridge, self.project, self.local_directory)
                 if not result.success:
                     self.finished.emit(False, result.message)
                     return
-            generate_project_control_file(self.project, self.local_directory)
+                generate_project_control_file(self.project, self.local_directory)
         except Exception as exc:  # noqa: BLE001 - surface any failure to the UI
             self.finished.emit(False, str(exc))
             return
@@ -129,10 +148,13 @@ class ReviewPage(QWizardPage):
 
         self.create_button.setEnabled(False)
         self.progress.setVisible(True)
-        self.status_label.setText("Creating project: running CG-tool inside WSL...")
+        if project.model_type == ModelType.ALL_ATOM_CHARMM:
+            self.status_label.setText("Creating project: running energy minimization inside WSL...")
+        else:
+            self.status_label.setText("Creating project: running CG-tool inside WSL...")
 
         self._thread = QThread(self)
-        self._worker = ProjectCreationWorker(bridge, project, local_dir, source_pdb)
+        self._worker = ProjectCreationWorker(bridge, project, local_dir, source_pdb, self.settings)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_finished)

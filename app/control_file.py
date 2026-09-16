@@ -60,6 +60,8 @@ class ControlFileConfig:
     aa_str_files: Optional[list] = None  # optional CHARMM stream file(s), e.g. toppar_water_ions.str
     aa_psf_file: Optional[str] = None
     aa_pdb_file: Optional[str] = None
+    minimize_method: str = "SD"  # genesis_tutorial_materials tutorial-3.3 2_minimize/INP (PDB 2QMT)
+    minimize_nsteps: int = 2000  # tutorial-3.3 2_minimize/INP
     # Which binary (app.project.Engine.value) will actually run this
     # control file. Matters because at least one keyword's valid values
     # differ by engine: confirmed 2026-09-10 against real installed
@@ -166,4 +168,32 @@ def write_control_file(
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
     write_generated_text(path, render_control_file(config, model_type))
+    return path
+
+
+def render_minimize_control_file(config: ControlFileConfig) -> str:
+    """All-atom-only (Roadmap Phase 5 follow-up): a short energy-minimization
+    control file, run automatically before the main MD run for every
+    ALL_ATOM_CHARMM project (app/project_creation.py's run_minimization()) --
+    confirmed against genesis_tutorial_materials tutorial-3.3/2_minimize/INP.
+    Not offered for CG model types: their own tutorials go straight to MD
+    with no separate minimization stage.
+    """
+    if not (config.aa_top_files and config.aa_par_files and config.aa_psf_file and config.aa_pdb_file):
+        raise ValueError("minimize control file requires aa_top_files, aa_par_files, aa_psf_file, and aa_pdb_file")
+    if config.box_x is None or config.box_y is None or config.box_z is None:
+        raise ValueError("minimize control file requires box_x/box_y/box_z")
+    env = _environment()
+    template = env.get_template("all_atom_minimize.j2")
+    return template.render(config=config)
+
+
+def write_minimize_control_file(
+    config: ControlFileConfig, local_directory: str, filename: str = "minimize.inp", force: bool = False
+) -> Path:
+    path = Path(local_directory) / filename
+    if path.exists() and not force:
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_generated_text(path, render_minimize_control_file(config))
     return path

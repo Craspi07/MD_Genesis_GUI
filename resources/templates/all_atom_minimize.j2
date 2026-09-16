@@ -1,0 +1,44 @@
+{# Energy minimization control file for a freshly solvated/ionized
+   all-atom CHARMM system (Roadmap Phase 5 follow-up fix). Confirmed
+   against the real, GENESIS-team-maintained genesis_tutorial_materials
+   repo, tutorial-3.3/2_minimize/INP (Protein G, PDB 2QMT) -- run
+   automatically before the main MD control file for every
+   ALL_ATOM_CHARMM project (app/project_creation.py's
+   run_minimization()), since starting MD directly on an unminimized
+   system is a real, common cause of a first-few-steps blow-up. See
+   DECISIONS.md. Every "#" comment uses "#" only. #}
+[INPUT]
+topfile = {{ config.aa_top_files|join(', ') }}
+parfile = {{ config.aa_par_files|join(', ') }}
+{% if config.aa_str_files -%}
+strfile = {{ config.aa_str_files|join(', ') }}
+{% endif -%}
+psffile = {{ config.aa_psf_file }}
+pdbfile = {{ config.aa_pdb_file }}
+
+[OUTPUT]
+dcdfile = {{ config.output_prefix }}_min.dcd
+rstfile = {{ config.output_prefix }}_min.rst
+
+[ENERGY]
+forcefield          = CHARMM                 # GENESIS User Guide 2.0.0 Sec. 6.1
+electrostatic       = PME                    # Sec. 6.2 default
+switchdist          = 10.0                   # Sec. 6.2 default (Angstrom)
+cutoffdist          = 12.0                   # Sec. 6.2 default (Angstrom)
+pairlistdist        = 13.5                   # Sec. 6.2 default (Angstrom)
+vdw_force_switch    = YES                    # Sec. 6.2: recommended for CHARMM36
+contact_check       = YES                    # tutorial-3.3 2_minimize/INP: catch atomic clashes before MD
+
+[MINIMIZE]
+method           = {{ config.minimize_method }}   # tutorial-3.3 2_minimize/INP: SD
+nsteps           = {{ config.minimize_nsteps }}   # tutorial-3.3 2_minimize/INP: 2000
+eneout_period    = 50                             # tutorial-3.3 2_minimize/INP
+crdout_period    = 50                             # tutorial-3.3 2_minimize/INP
+rstout_period    = {{ config.minimize_nsteps }}   # write the restart once, at the end
+nbupdate_period  = 10                             # tutorial-3.3 2_minimize/INP
+
+[BOUNDARY]
+type       = PBC                             # required for PME (Sec. 6.2)
+box_size_x = {{ config.box_x }}
+box_size_y = {{ config.box_y }}
+box_size_z = {{ config.box_z }}

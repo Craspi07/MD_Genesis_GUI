@@ -2,6 +2,80 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-16 — Two real all-atom bugs found and fixed against GENESIS's own tutorial materials
+
+Asked to pick a protein to validate the all-atom pipeline against a real
+GENESIS install. Rather than recommend one blind, cloned the real,
+GENESIS-team-maintained `genesis_tutorial_materials` GitHub repo
+(referenced from `mdgenesis.org/tutorials/genesis_tutorial_3.3_2022/`
+and `.../genesis_tutorial_2.3_2022/`) and diffed this app's
+`all_atom_charmm.j2` against their actual validated control files for
+tutorial-3.3 (Protein G, **PDB 2QMT**, prepped via VMD/psfgen/solvate/
+autoionize, 64x64x64 A box, 150 mM NaCl, TIP3 water). Two real bugs
+surfaced, not just style differences -- both fixed here, both new
+behavior covered by tests using a fake `atdyn`+`mpirun` on `PATH` to
+exercise the real launch path end-to-end (this container still has no
+real GENESIS/MPI install).
+
+**Bug 1 -- position restraints wrongly covered solvent.**
+`all_atom_charmm.j2`'s `[SELECTION] group1 = all` restrained every
+atom, water included. The real tutorial (`3_equilibrate/INP1-3`)
+restrains only the protein: heavy atoms in the first equilibration
+stage, backbone atoms (`an:N or an:CA or an:C or an:O`) in the rest.
+Restraining solvent defeats the actual purpose of equilibration (water
+needs to move freely around a held solute) -- this wasn't a style
+choice, it was wrong. Fixed to `an:N or an:CA or an:C or an:O`
+(the pattern used in 2 of the tutorial's 3 equilibration stages, and
+the more portable choice since it doesn't depend on the PSF's segment
+naming convention the way `sid:PROA` would). CG's own `_common_sections
+.j2` restraint (`group1 = all`) was deliberately left untouched --
+CG systems here have no explicit solvent beads, so restraining "all"
+CG beads has no equivalent problem.
+
+**Bug 2 -- no energy-minimization stage.** The wizard generated exactly
+one control file (`run.inp`) and went straight to MD. GENESIS's real
+protocol always minimizes a freshly solvated/ionized system first
+(`2_minimize/INP`: `method=SD`, `nsteps=2000`, `contact_check=YES`) --
+skipping this is a real, common cause of a first-few-steps blow-up,
+exactly the failure mode already warned about in the earlier
+verification-guide discussion. Fixed by adding:
+- `resources/templates/all_atom_minimize.j2` -- a `[MINIMIZE]`-only
+  control file (no `[DYNAMICS]`/`[ENSEMBLE]`, matching the real
+  tutorial's minimize stage exactly, including `contact_check=YES`,
+  not carried over into the main run.inp since the tutorial's own
+  equilibration/production stages don't set it either).
+- `app/control_file.py`'s `render_minimize_control_file()`/
+  `write_minimize_control_file()`, and `ControlFileConfig.
+  minimize_method`/`minimize_nsteps` (defaults `SD`/`2000`, both cited
+  to the real tutorial, not exposed as wizard options -- this is a
+  correctness fix, not a new tunable feature).
+- `app/project_creation.py`'s `run_minimization()`: builds and runs
+  `minimize.inp` synchronously (the same "strip build_wrapper_script's
+  trailing `&`, append `; wait`" blocking pattern `app/benchmark.py`
+  already uses, not a new invocation shape), then
+  `ui/page_review.py`'s `ProjectCreationWorker` runs it automatically
+  for every `ALL_ATOM_CHARMM` project (no new checkbox -- a user
+  forgetting to opt in would hit exactly the failure this fixes) and
+  passes the resulting `{name}_min.rst` to `generate_project_control_
+  file` as `restart_file`, so `run.inp` starts from the minimized
+  structure the same way the real tutorial's `3_equilibrate/INP1` does
+  (`rstfile = ../2_minimize/min.rst`).
+
+**Confirmed correct, no change needed**: `forcefield=CHARMM`,
+`electrostatic=PME`, `switchdist=10.0`, `cutoffdist=12.0`,
+`pairlistdist=13.5`, `vdw_force_switch=YES`, `integrator=VVER`,
+`rigid_bond=YES`, `nbupdate_period=10` all matched the real reference
+exactly -- reassuring given none of this had been checked against
+real GENESIS output before.
+
+**Not changed, flagged for later**: the real tutorial uses
+`tpcontrol=BUSSI` (this app still defaults to `LANGEVIN` -- both are
+confirmed-valid per the User Guide's compatibility table, BUSSI is
+just GENESIS's own reference choice here) and `integrator=VRES`
+(multi-timestep RESPA) for later equilibration/production stages,
+which this app doesn't offer at all. Neither is a correctness bug the
+way the two fixed issues were, so neither was changed in this pass.
+
 ## 2026-09-16 — All-atom mode wired into the New Project wizard
 
 Reported directly: "GUI do not have all atom simulation and other
