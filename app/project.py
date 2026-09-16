@@ -26,6 +26,12 @@ class ModelType(str, Enum):
     HPS_SINGLE = "hps_single"  # Disordered protein / IDR — HPS
     HPS_CONDENSATE = "hps_condensate"  # Multi-chain condensate — HPS slab
     PROTEIN_DNA = "protein_dna"  # AICG2+ + 3SPN.2C (advanced)
+    ALL_ATOM_CHARMM = "all_atom_charmm"  # Explicit-solvent all-atom MD, CHARMM force field
+    # (Roadmap Phase 5). Per GENESIS User Guide 2.0.0 Sec. 4.1, GENESIS itself never builds
+    # atomistic systems (solvation, ions, missing atoms/H) -- that's done by an external setup
+    # tool (VMD/PSFGEN, CHARMM-GUI, or CHARMM) the same way genesis_cg_tool is the external
+    # setup tool for CG models. This model type takes an already-prepared topfile/parfile/
+    # psffile/pdbfile system and only generates the GENESIS control file for it.
 
 
 class InputMode(str, Enum):
@@ -47,7 +53,17 @@ class SimulationParameters:
     langevin_friction: float = 0.01
     box_size_nm: Optional[float] = None
     n_copies: int = 1
+    ensemble: str = "NVT"  # GENESIS User Guide 2.0.0 Sec. 10.1: NVE/NVT/NPT/NPAT/NPgT; only NVT/NPT offered here
+    pressure_atm: float = 1.0  # GENESIS User Guide 2.0.0 Sec. 10.1 default target pressure for NPT
     use_position_restraints: bool = False
+    position_restraint_force_constant: float = 10.0  # matches the User Guide's own POSI restraint example (Sec. 16.4)
+    remd_enabled: bool = False
+    remd_n_replicas: int = 4
+    remd_exchange_period: int = 1000  # GENESIS User Guide 2.0.0 Ch. 15 T-REMD example (Sec. 15.4.1)
+    remd_temperatures: List[float] = field(default_factory=list)
+    gamd_enabled: bool = False
+    gamd_update_period: int = 0  # GENESIS User Guide 2.0.0 Sec. 17.1 default; 0 means GaMD never adapts
+    gamd_sigma0_pot: float = 6.0  # GENESIS User Guide 2.0.0 Sec. 17.1 default (kcal/mol)
     random_seed: int = 12345
 
 

@@ -36,6 +36,18 @@ def test_build_wrapper_script_records_pgid_before_exec():
     assert "run.log" in script
 
 
+def test_build_wrapper_script_scales_ranks_for_remd():
+    resources = ResourceConfig(engine=Engine.ATDYN, mpi_ranks=4, omp_threads=4)
+    script = build_wrapper_script(resources, _settings(), n_replicas=8)
+    assert "mpirun -np 32" in script  # 4 ranks/replica x 8 replicas
+
+
+def test_build_wrapper_script_default_n_replicas_is_one():
+    resources = ResourceConfig(engine=Engine.ATDYN, mpi_ranks=4, omp_threads=4)
+    script = build_wrapper_script(resources, _settings())
+    assert "mpirun -np 4" in script
+
+
 def test_build_oversubscribe_wrapper_script_adds_flag():
     resources = ResourceConfig(engine=Engine.CGDYN, mpi_ranks=8, omp_threads=2)
     script = build_oversubscribe_wrapper_script(resources, _settings())
@@ -81,6 +93,29 @@ def test_runner_poll_parses_newly_tailed_lines(bridge: WslBridge, tmp_path: Path
     assert received[0][0].values["TOTAL_ENE"] == -1234.50
 
 
+def test_start_uses_remd_replica_count_for_total_ranks(bridge: WslBridge, tmp_path: Path, monkeypatch):
+    project = _project(str(tmp_path))
+    project.parameters.remd_enabled = True
+    project.parameters.remd_n_replicas = 3
+    project.resources.mpi_ranks = 2
+    runner = SimulationRunner(bridge, project, str(tmp_path), poll_interval_ms=100)
+    runner.set_settings(_settings())
+
+    calls = []
+    original_run = bridge.run
+
+    def _record(command, timeout=None):
+        calls.append(command)
+        return original_run(command, timeout=timeout)
+
+    monkeypatch.setattr(bridge, "run", _record)
+    runner.start()
+    runner._timer.stop()
+
+    launch_call = next(c for c in calls if "mpirun" in c)
+    assert "-np 6" in launch_call  # 2 ranks/replica x 3 replicas
+
+
 def test_start_cleans_up_previous_outputs_for_fresh_start(bridge: WslBridge, tmp_path: Path):
     # Real 2026-09-14 symptom: "status running, no plot, no log whatsoever"
     # -- GENESIS refuses to overwrite an existing restart file
@@ -100,6 +135,23 @@ def test_start_cleans_up_previous_outputs_for_fresh_start(bridge: WslBridge, tmp
     assert not (tmp_path / "test.rst").exists()
     assert not (tmp_path / "test.pdb").exists()
     assert not (tmp_path / "test.dcd").exists()
+
+
+def test_start_cleans_up_previous_remd_replica_outputs(bridge: WslBridge, tmp_path: Path):
+    project = _project(str(tmp_path))
+    project.parameters.remd_enabled = True
+    project.parameters.remd_n_replicas = 2
+    project.parameters.remd_temperatures = [300.0, 310.0]
+    for suffix in ["_rep1.rst", "_rep2.rst", "_rep1.dcd", "_rep1.log", "_rep1.rem"]:
+        (tmp_path / f"test{suffix}").write_text("old\n")
+    runner = SimulationRunner(bridge, project, str(tmp_path), poll_interval_ms=100)
+    runner.set_settings(_settings())
+
+    runner.start()
+    runner._timer.stop()
+
+    for suffix in ["_rep1.rst", "_rep2.rst", "_rep1.dcd", "_rep1.log", "_rep1.rem"]:
+        assert not (tmp_path / f"test{suffix}").exists()
 
 
 def test_start_continuation_preserves_restart_file(bridge: WslBridge, tmp_path: Path):

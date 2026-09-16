@@ -9,6 +9,8 @@ from PyQt5.QtWidgets import (
     QFormLayout,
     QComboBox,
     QSpinBox,
+    QCheckBox,
+    QLineEdit,
     QPushButton,
     QHBoxLayout,
     QPlainTextEdit,
@@ -75,6 +77,51 @@ class ResourcesPage(QWizardPage):
         self.core_usage_label = QLabel("")
         form.addRow("", self.core_usage_label)
 
+        remd_row = QHBoxLayout()
+        self.remd_enabled = QCheckBox("Enable replica exchange (T-REMD)")
+        self.remd_enabled.setToolTip(
+            "Temperature replica-exchange MD (GENESIS User Guide 2.0.0 Ch. 15). Runs as one "
+            "mpirun job with more total ranks (MPI ranks above x number of replicas); GENESIS's "
+            "own [REMD] section handles partitioning ranks into replicas. Not in the User "
+            "Guide's own atdyn/cgdyn regression-test list -- generated file flags this # VERIFY."
+        )
+        self.remd_enabled.toggled.connect(self._on_remd_toggled)
+        self.remd_enabled.toggled.connect(self.completeChanged)
+        remd_row.addWidget(self.remd_enabled)
+
+        self.remd_n_replicas = QSpinBox()
+        self.remd_n_replicas.setRange(2, 64)
+        self.remd_n_replicas.setValue(4)
+        self.remd_n_replicas.setEnabled(False)
+        self.remd_n_replicas.setPrefix("replicas: ")
+        self.remd_n_replicas.valueChanged.connect(self._update_preview)
+        self.remd_n_replicas.valueChanged.connect(self.completeChanged)
+        remd_row.addWidget(self.remd_n_replicas)
+        form.addRow("", remd_row)
+
+        self.remd_temperatures = QLineEdit()
+        self.remd_temperatures.setEnabled(False)
+        self.remd_temperatures.setPlaceholderText("e.g. 298.15 311.79 321.18 330.82 (one per replica)")
+        self.remd_temperatures.setToolTip(
+            "Space-separated replica temperatures (K), one per replica. GENESIS doesn't ship a "
+            "temperature-ladder generator this app can call, so these must be chosen directly -- "
+            "the User Guide points to an external tool (http://folding.bmc.uu.se/remd/)."
+        )
+        self.remd_temperatures.textChanged.connect(self._update_preview)
+        self.remd_temperatures.textChanged.connect(self.completeChanged)
+        form.addRow("Replica temperatures:", self.remd_temperatures)
+
+        self.remd_exchange_period = QSpinBox()
+        self.remd_exchange_period.setRange(1, 1_000_000)
+        self.remd_exchange_period.setValue(1000)
+        self.remd_exchange_period.setEnabled(False)
+        self.remd_exchange_period.setToolTip("Steps between exchange attempts (GENESIS default: 1000).")
+        form.addRow("Exchange period:", self.remd_exchange_period)
+
+        self.remd_status_label = QLabel("")
+        self.remd_status_label.setWordWrap(True)
+        form.addRow("", self.remd_status_label)
+
         layout.addWidget(QLabel("Exact command that will be launched:"))
         self.command_preview = QPlainTextEdit()
         self.command_preview.setReadOnly(True)
@@ -109,6 +156,18 @@ class ResourcesPage(QWizardPage):
         self._user_overrode_engine = self.engine_combo.currentData() is not None
         self._update_preview()
 
+    def _on_remd_toggled(self, checked: bool) -> None:
+        self.remd_n_replicas.setEnabled(checked)
+        self.remd_temperatures.setEnabled(checked)
+        self.remd_exchange_period.setEnabled(checked)
+        self._update_preview()
+
+    def parsed_remd_temperatures(self) -> list:
+        try:
+            return [float(t) for t in self.remd_temperatures.text().split()]
+        except ValueError:
+            return []
+
     def _apply_preset(self, ranks: int, threads: int) -> None:
         self.mpi_ranks.setValue(ranks)
         self.omp_threads.setValue(threads)
@@ -129,8 +188,27 @@ class ResourcesPage(QWizardPage):
     def _update_preview(self) -> None:
         ranks = self.mpi_ranks.value()
         threads = self.omp_threads.value()
-        used = ranks * threads
-        self.core_usage_label.setText(f"{used} of {self.settings.total_cores} cores requested.")
+        n_replicas = self.remd_n_replicas.value() if self.remd_enabled.isChecked() else 1
+        total_ranks = ranks * n_replicas
+        used = total_ranks * threads
+        if n_replicas > 1:
+            self.core_usage_label.setText(
+                f"{used} of {self.settings.total_cores} cores requested "
+                f"({ranks} ranks/replica x {n_replicas} replicas x {threads} threads)."
+            )
+        else:
+            self.core_usage_label.setText(f"{used} of {self.settings.total_cores} cores requested.")
+
+        if self.remd_enabled.isChecked():
+            n_temps = len(self.parsed_remd_temperatures())
+            if n_temps != n_replicas:
+                self.remd_status_label.setText(
+                    f"Enter exactly {n_replicas} space-separated temperatures (currently {n_temps})."
+                )
+            else:
+                self.remd_status_label.setText("")
+        else:
+            self.remd_status_label.setText("")
 
         engine = self.selected_engine()
         mpi_args = self.settings.mpi_args_for(threads)
@@ -138,10 +216,14 @@ class ResourcesPage(QWizardPage):
             f"setsid bash -c '\n"
             f"  echo $$ > run.pgid\n"
             f"  export OMP_NUM_THREADS={threads}\n"
-            f"  exec mpirun -np {ranks} {mpi_args} {engine.value} run.inp > run.log 2>&1\n"
+            f"  exec mpirun -np {total_ranks} {mpi_args} {engine.value} run.inp > run.log 2>&1\n"
             f"' &"
         )
         self.command_preview.setPlainText(cmd)
 
     def isComplete(self) -> bool:
-        return self.mpi_ranks.value() > 0 and self.omp_threads.value() > 0
+        if self.mpi_ranks.value() <= 0 or self.omp_threads.value() <= 0:
+            return False
+        if self.remd_enabled.isChecked():
+            return len(self.parsed_remd_temperatures()) == self.remd_n_replicas.value()
+        return True

@@ -2,6 +2,375 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-16 — File > Open Project
+
+Requested directly: reopening an already-created project previously
+required either the Dashboard tab or the Projects tree dock -- there
+was no File menu equivalent of "Open Project," which is the
+conventional place to look for it and the only path that lets a user
+open a project GENESIS Studio has never seen before in this session's
+`Settings.recent_projects` (e.g. one created on a different machine
+sharing the same WSL projects folder). Added `File > Open Project...`
+(Ctrl+O) using `QFileDialog.getExistingDirectory`, starting at the
+projects root (new `local_projects_root_for()` in
+`app/project_creation.py`, factored out of the existing
+`local_directory_for()` so the UNC-path construction logic stays in one
+place per CLAUDE.md). Picking a folder that isn't a real project
+(missing/corrupt `project.json`) shows a `QMessageBox.warning` rather
+than failing silently, matching the pattern already established for
+`File > New Project`'s and the dashboard's own load-failure paths.
+
+## 2026-09-16 — Roadmap Phase 6: plotting upgrade (secondary axis, zoom/pan, CSV export)
+
+No GENESIS docs to verify this time -- pure UI/UX, the last of the six
+roadmap phases.
+
+**Real bug fixed**: `ui/tab_run.py`'s and `ui/tab_analysis.py`'s
+"temperature/energy over time" plots called `MplCanvas.set_series` for
+TOTAL_ENE/POTENTIAL_ENE and TEMPERATURE all on the same single y-axis.
+Energy terms run in the thousands (kcal/mol); temperature sits around
+300 K. On a shared axis, temperature's line is visually flattened to
+near-zero -- the plot silently failed to show what it claimed to show
+whenever both were plotted together, which is every time this button
+was used. `MplCanvas.set_series` gained an `axis="secondary"` option
+(a lazily created `Axes.twinx()`, its own y-axis label, lines tracked
+separately, and a combined legend built from both axes' handles so the
+legend doesn't silently drop the secondary series). `clear()` tears the
+secondary axis down (`figure.delaxes`) so re-plotting after a Start/
+Stop cycle or a fresh analysis run doesn't accumulate stale axes.
+
+**Zoom/pan/save**: matplotlib's own `NavigationToolbar2QT` (from
+`matplotlib.backends.backend_qtagg`, the same backend module already
+imported for `FigureCanvasQTAgg` -- no new dependency) added above the
+canvas in both tabs. This is standard matplotlib, not a custom
+control -- CLAUDE.md's "PyQt5 only, no web views" rule is unaffected
+since this is still pure Qt widgets.
+
+**CSV export**: added `app/csv_export.py` alongside the existing
+`app/excel_export.py`, reusing the same `AnalysisSeries`/
+`AnalysisMatrix` dataclasses so results collected by the Analysis tab
+don't need a second in-memory representation. CSV has no equivalent of
+Excel's multiple sheets, so `export_to_csv` writes one file per
+series/matrix into a user-chosen directory instead of one workbook.
+
+**Deliberately not attempted**: true multi-panel plotting (e.g., a
+per-replica REMD view). Phase 4 already deferred "Run tab support for
+viewing per-replica status" because REMD's real stdout output format
+(what `GenesisLogParser` would need to keep parsing) was never verified
+against an actual REMD run -- building a multi-panel layout for data
+this app can't yet reliably parse would be exactly the kind of
+speculative feature this whole roadmap's discipline avoids. Revisit
+once a real REMD run's log format is confirmed.
+
+## 2026-09-16 — Roadmap Phase 5: all-atom CHARMM control-file support (layer only)
+
+Researched using the same GENESIS User Guide v2.0.0 PDF as Phases 3/4
+(Ch. 4 `[INPUT]`, Ch. 6 `[ENERGY]`, Ch. 9 `[CONSTRAINTS]`). This phase
+changed shape the most once actually read: the original `ROADMAP.md`
+draft imagined this app running a solvation/ionization pipeline the way
+it runs `genesis_cg_tool` for CG. Sec. 4.1 says otherwise outright:
+"the users have to prepare input files... by using a setup tool" --
+CHARMM needs `top, par, psf, pdb` prepared via VMD/PSFGEN, CHARMM-GUI,
+or CHARMM itself; AMBER needs `prmtop, pdb/crd` via LEaP. GENESIS
+itself, like `genesis_cg_tool` for CG, is never the system-building
+tool -- it only ever consumes already-built files. So this app's real
+job for all-atom is identical in shape to what it already does for CG:
+turn a set of prepared input files into a correct control file, nothing
+more.
+
+Given that, Phase 5 shipped the control-file/template layer only --
+`ModelType.ALL_ATOM_CHARMM`, `resources/templates/all_atom_charmm.j2`,
+new `ControlFileConfig` fields (`aa_top_files`/`aa_par_files`/
+`aa_str_files`/`aa_psf_file`/`aa_pdb_file`), and validation in
+`render_control_file` (rejects the model type without all required
+files, or without a box) -- fully tested in `tests/test_control_file.
+py`. **Wizard/project-creation integration was deliberately not
+attempted in this pass**: there's no ModelPage card, no page for
+collecting the five file paths + box dimensions, and no
+`project_creation.py` logic to copy them into a project directory. That
+is real, well-defined remaining work (per Phase 1's own precedent of
+naming what's deferred rather than silently skipping it), not
+something rushed to appear complete.
+
+**Why a new template instead of extending `_common_sections.j2`**:
+that file is written entirely around this app's CG pipeline --
+`VVER_CG`/`cgdyn`'s `VVER` as the only two integrator branches,
+`rigid_bond = NO` hardcoded (fine for CG, wrong for real AA explicit
+solvent), CG-scale timesteps (5-20 fs) implied throughout, and the
+`[SELECTION]`/`[RESTRAINTS]`/`[REMD]`/`[GAMD]` additions from Phases
+3-4 all assume a CG bead system. Threading AA-specific branches through
+all of that would have made an already-dense shared file harder to
+verify line-by-line, for a phase whose whole discipline is "verify
+every line." `all_atom_charmm.j2` is self-contained and only reuses the
+Phase 3/4 keyword *knowledge* (NPT pressure/gamma_p, POSI restraints),
+not the file, so it can also skip [REMD]/[GAMD] entirely -- neither was
+implemented for AA in this pass either, though nothing here blocks
+adding them the same way CG got them.
+
+**A genuinely good outcome of using plain `VVER` instead of CG's
+`VVER_CG`**: every `# VERIFY` this session attached to NPT/REMD/GaMD's
+`tpcontrol`/engine compatibility existed specifically because
+`VVER_CG`/`cgdyn` fall outside the User Guide's own ATDYN/SPDYN
+compatibility tables. All-atom CHARMM mode uses plain ATDYN `VVER`,
+which *is* in those tables -- so NPT with `tpcontrol=LANGEVIN` is
+directly confirmed for it, no caveat needed. This is a real, structural
+difference between the CG and AA pipelines' risk profile, not
+carelessness in one or the other.
+
+**Confirmed CHARMM defaults used, none guessed**: `electrostatic=PME`
+(default, needs PBC -- Sec. 6.2), `switchdist=10.0`/`cutoffdist=12.0`/
+`pairlistdist=13.5` (Sec. 6.2 defaults), `vdw_force_switch=YES` ("should
+be specified in the case of CHARMM36", Sec. 6.2), `rigid_bond=YES`/
+`fast_water=YES` (Sec. 9.4's own CHARMM `[CONSTRAINTS]` example),
+`nbupdate_period=10` (Sec. 7.1 default -- deliberately not reusing the
+CG templates' `nbupdate_period=20`, which is cited to a CG tutorial,
+not a generic default). Box size is required from the user with no
+tutorial-style fallback (unlike CG's `DEFAULT_BOX_SIZE`): an all-atom
+box must match whatever box the user's own setup tool already built,
+and guessing one here risks silently mismatching a real prepared
+system.
+
+## 2026-09-16 — Roadmap Phase 4: REMD (T-REMD) + GaMD
+
+Continued researching the same GENESIS User Guide v2.0.0 PDF used for
+Phase 3 (Ch. 15 `[REMD]`, Sec. 5.2 REMD output files, Ch. 17 `[GAMD]`).
+
+**Corrected a wrong assumption from `ROADMAP.md`'s own original
+write-up**: it assumed REMD would need `runner.py` to "manage N
+processes instead of 1 — real architecture change." The User Guide
+(Ch. 15) says otherwise: "REMD simulations in GENESIS require an MPI
+environment. At least one MPI process must be assigned to one replica"
+-- meaning REMD is **one** `mpirun` launch of the same `atdyn`/`cgdyn`
+binary with more total ranks (ranks-per-replica x n_replicas); the
+control file's own `[REMD]` section tells GENESIS how to partition
+ranks into replicas internally. So Phase 4 needed no new process-
+management architecture: `app/runner.py`'s `build_wrapper_script`
+gained an `n_replicas` parameter that just multiplies `-np`, and
+`SimulationRunner.start()` passes `project.parameters.remd_n_replicas`
+through when REMD is enabled. This is a good example of why this
+session's discipline is "verify before building," not "guess an
+architecture, then build toward the guess."
+
+**REMD output files**: confirmed (Sec. 5.2/5.6) that REMD requires
+`{}` in `logfile`/`dcdfile`/`remfile`/`rstfile` -- GENESIS substitutes
+it with the replica index itself. `pdbfile` (ATDYN's restart-PDB
+convenience file) is not mentioned as needing `{}` and isn't confirmed
+either way, so it's omitted entirely under REMD rather than guessed
+one way or the other. `app/runner.py`'s `_cleanup_previous_outputs`
+extended to `rm -f` a `_rep*` glob for these files (same collision risk
+as the plain-filename case already fixed 2026-09-14, just replica-
+indexed).
+
+**Scope explicitly narrowed, not guessed around**: the User Guide
+documents REUS, gREST, multi-dimensional REMD, and REMD/GaMD
+combinations (GaREUS) -- none of that is exposed. T-REMD (temperature
+exchange) is the only REMD type implemented, since it's the simplest,
+has a complete confirmed example (Sec. 15.4.1), and this app has no
+existing collective-variable/reaction-coordinate concept a REUS UI
+would need. Replica temperatures are typed directly by the user (space-
+separated, validated to match the replica count) rather than
+auto-generated, since the User Guide itself defers to an external tool
+("REMD temperature generator", http://folding.bmc.uu.se/remd/) for
+choosing a good ladder -- inventing a spacing formula here would be
+exactly the kind of unconfirmed guess this codebase avoids.
+
+**GaMD**: `boost_type = POTENTIAL` is the only mode offered. `DUAL`
+(the GENESIS default) and `DIHEDRAL` both need a `sigma0_dih` keyword
+whose documented default wasn't visible in the fetched pages -- rather
+than guess a number for an energy-scale parameter, only `POTENTIAL`
+(needs `sigma0_pot` only, confirmed default 6.0 kcal/mol) is exposed.
+`update_period` defaults to GENESIS's own documented 0, but 0 means
+"never adapt" -- a syntactically valid, scientifically inert control
+file -- so `render_control_file` now raises if `gamd_enabled` and
+`update_period <= 0`, and the wizard checkbox auto-fills 500 (a
+non-zero starting point the user must still review, not a validated
+GENESIS-recommended value) the moment it's checked, so the checkbox is
+never left in that silently-broken state.
+
+**Engine gating**: the User Guide's own regression-test directory
+listing (Sec. 2.1.4) names `test_gamd_atdyn`/`test_gamd_spdyn` but no
+cgdyn equivalent, and `test_remd_spdyn`/`test_remd_common` but neither
+an atdyn- nor cgdyn-specific REMD test. Since this app only ever
+targets atdyn/cgdyn (never spdyn), *neither* engine's REMD support is
+directly confirmed, so REMD's `# VERIFY` note applies regardless of
+engine; GaMD's only applies when the engine isn't atdyn, since atdyn
+specifically is confirmed while cgdyn is not.
+
+## 2026-09-16 — Roadmap Phase 3: NPT ensemble + position restraints
+
+Verified against the real **GENESIS User Guide v2.0.0 PDF**
+(`mdgenesis.org/assets/fundamental/GENESIS_UserGuide_v2.0.0.pdf`, fetched
+live and parsed page-by-page since restraints/ensembles aren't covered by
+any tutorial page) rather than a tutorial, since this phase's features
+are general engine behavior, not one CG model's example. This is the
+first time this session verified against the actual engine reference
+manual instead of a tutorial or `-h ctrl_all` -- worth noting because it
+opens up the same source for later phases.
+
+**Position restraints (real bug fix)**: `ui/page_parameters.py`'s
+"Apply position restraints" checkbox and `SimulationParameters.
+use_position_restraints` have existed since before this roadmap, wired
+all the way through `Project.save`/`load` and into the wizard's project
+object -- but `app/control_file.py` never read the field. The checkbox
+did nothing. Confirmed the real GENESIS syntax (User Guide Sec. 13.1):
+`[RESTRAINTS] nfunctions=1, function1=POSI, constant1=<force
+constant>, select_index1=1`, referencing a `[SELECTION] group1=all`,
+with reference coordinates supplied via a new `[INPUT] groreffile =
+<same .gro as grocrdfile>` line (POSI's reference value is otherwise
+ignored per the docs -- confirmed groreffile is the correct keyword for
+GROMACS-format input, alongside the doc's reffile/ambreffile
+alternatives for other formats). Added `SimulationParameters.
+position_restraint_force_constant` (default 10.0, matching the User
+Guide's own POSI example in Sec. 16.4) since the checkbox alone had no
+way to set restraint strength, and wired both fields through
+`app/project_creation.py` and `ui/tab_run.py`'s `_on_continue` (the two
+places that build a `ControlFileConfig`).
+
+**NPT ensemble**: `ControlFileConfig.ensemble`/`SimulationParameters.
+ensemble` already existed but were dead too -- always "NVT", never
+exposed anywhere. Confirmed real `[ENSEMBLE]` keywords for NPT (Sec.
+10.1): `pressure` (atm), `gamma_p` (Langevin barostat friction, default
+0.1 ps^-1). Added an ensemble combo (NVT/NPT) and a pressure field to
+the wizard's Parameters page, gated to `MODEL_TYPES_REQUIRING_BOX`
+(AICG2P, HPS_CONDENSATE) since NPT needs a periodic box to compress —
+`render_control_file` now raises `ValueError` if NPT is requested for a
+NOBC model type (HPS_SINGLE, PROTEIN_DNA) instead of silently emitting
+a control file GENESIS would reject.
+
+One thing explicitly NOT carried over from the doc as confirmed: the
+User Guide's own ATDYN/SPDYN tpcontrol-compatibility table (Sec. 10.1)
+lists `LANGEVIN` as valid for NVT/NPT/NPAT/NPgT under generic ATDYN's
+`VVER`, but that table never mentions `VVER_CG` (atdyn's CG-specific
+integrator, used by every template this app renders for atdyn) or
+`cgdyn` at all -- both are CG-tool-specific binaries outside this
+general user guide's coverage, and this session already has one proven
+case (the original VVER_CG bug) where a real CG binary's behavior
+genuinely differed from generic engine expectations. Rather than repeat
+that mistake, `tpcontrol = LANGEVIN` is kept unchanged for NPT (least
+change from what's already proven working for NVT) but the generated
+`.inp` file itself gets an explicit `# VERIFY` block explaining exactly
+why, directing the user to check a real `atdyn`/`cgdyn -h ctrl_all`
+before trusting an NPT run. NPAT/NPgT ensembles were not implemented at
+all -- both require `isotropy` settings meaningful only for membrane
+systems (Sec. 10.1: `SEMI-ISO`/`XY-FIXED`), and this app has no
+membrane/lipid CG force field to exercise them against.
+
+Bonus: researching this phase's `[RESTRAINTS]`/`[ENSEMBLE]` sections in
+the User Guide PDF also surfaced the full `[REMD]` section reference
+(Ch. 15) needed for Roadmap Phase 4 -- saved for that phase rather than
+acted on now, but means Phase 4 starts with real keyword documentation
+already in hand instead of a fresh research pass.
+
+## 2026-09-15 — Roadmap Phase 2: RMSF and SASA added to the Analysis tab
+
+RMSD/Rg/Q-value/contact-map/density already existed in `app/analysis.py`
+before this roadmap; the two tools genuinely missing were RMSF and SASA.
+Both needed real research (`mdgenesis.org`'s own example pages, fetched
+live) rather than reuse of the existing `write_analysis_control_file`
+pattern, because both tools take fundamentally different `[INPUT]`.
+
+**RMSF**: confirmed there is no single "rmsf_analysis" binary -- the
+real tool is `flccrd_analysis` (root-mean-square fluctuation), and it
+needs a prerequisite `avecrd_analysis` run first to produce
+`pdb_avefile`/`pdb_aftfile` (average and "after-fit" reference
+structures). Confirmed exact keywords from mdgenesis.org's own example
+pages:
+- `avecrd_analysis`: `[INPUT] reffile`/`psffile`; `[OUTPUT] pdbfile`/
+  `rmsfile`/`pdb_avefile`/`pdb_aftfile`; `[TRAJECTORY]` (with
+  `ana_period1`/`repeat1`/`trj_natom`, shown in the doc example but not
+  part of the shorter block already proven for rmsd/rg/qvalue/distmat --
+  kept as a second, separate block rather than risk changing a working
+  pattern); `[SELECTION]`; `[FITTING] fitting_method=TR+ROT`; `[OPTION]`.
+- `flccrd_analysis`: same `[INPUT]` shape plus `pdb_avefile`/
+  `pdb_aftfile` from the avecrd step; `[OUTPUT] rmsfile` (pcafile/
+  vcvfile/crsfile omitted as not needed -- `# VERIFY`, not directly
+  witnessed that omitting them is safe for this specific tool, though
+  every other GENESIS analysis tool's `[OUTPUT]` keywords are
+  independently optional by omission).
+
+Neither tool's docs show `grotopfile`/`grocrdfile` (GROMACS format) as
+an alternative to `psffile`/`reffile` -- unlike rmsd_analysis etc.,
+which do. This matters because it's genuinely unconfirmed whether
+`aa_2_cg.jl --cgpdb` (the AICG2+/PDB-input pipeline) writes a `.psf` at
+all; only `cg_protein_structure_builder.jl` (the sequence/HPS pipeline)
+is confirmed to (`app/cgtool.py`'s own docstring). Rather than guess by
+`project.model_type`, `rmsf_inputs_available()` checks for a real
+`.psf`+`.pdb` in the project directory at call time and the Analysis
+tab's RMSF button is enabled/disabled from that, with a tooltip
+explaining why when disabled. If it turns out `aa_2_cg.jl` also writes
+a `.psf`, this gate does the right thing automatically with no code
+change; if not, it never sends an AICG2+ project into a pipeline that
+was never confirmed to work for it.
+
+**SASA**: confirmed the real tool is `sasa_analysis` (SPANA framework),
+needing `[INPUT] psffile`/`reffile`/`pdbfile` (same `reffile`==`pdbfile`
+duplication shown in the doc's own example), `[OUTPUT] txtfile`,
+`[BOUNDARY]`, `[ENSEMBLE]`, `[SELECTION]`, `[SPANA_OPTION]`,
+`[SASA_OPTION]` (`solute`, `radi_file`, `probe_radius=1.4`,
+`delta_z=0.2`, `output_style`, `recenter`). `output_style = history`
+chosen specifically because it's documented as "temporal profile of
+total SASA only" -- a plain two-column series `parse_two_column_series`
+already handles, unlike `atomic`/`atomic+history`'s per-atom output.
+Same `.psf`/`.pdb` gating as RMSF (`sasa_inputs_available`, currently
+identical to `rmsf_inputs_available`).
+
+Two things called out instead of guessed:
+- `[BOUNDARY]`'s `domain_x/y/z`/`num_cells_x/y/z` (SPANA spatial
+  decomposition sizing): the doc example's values were sized for that
+  example's own box and parallel rank count, so copying them would be
+  exactly the kind of unfounded guess this whole codebase's discipline
+  exists to avoid. Used the smallest possible decomposition (a single
+  domain, single cell) for a serial single-rank run instead, with an
+  explicit `# VERIFY` written directly into the generated `.inp` file
+  (not just a code comment) so it's visible if the user opens the file,
+  and will need confirming against a real install.
+- `radi_file` (an atom-radius definition file `[SASA_OPTION]` requires):
+  no default ships anywhere documented, unlike `vmd_path`'s guessable
+  Windows install path. Rather than hardcode a guessed path, added
+  `Settings.sasa_radius_file` (new Settings dialog field, empty by
+  default) the user must point at a real file; the SASA button stays
+  disabled with a tooltip until it's set, and `run_sasa_analysis`
+  refuses with an explicit message if called without one.
+
+## 2026-09-15 — Roadmap Phase 1: multi-project dashboard + workflow clarity
+
+Asked to "expand the GUI to include everything GENESIS can do and make
+it better" -- too broad to attempt as one change, so it became a
+six-phase plan (`ROADMAP.md`), sequenced by risk/dependency and executed
+one phase at a time. This entry covers Phase 1, the only phase with no
+new control-file/engine surface to verify.
+
+Problems fixed:
+- The center tabs only ever showed a static "Welcome to GENESIS Studio"
+  label or one open project at a time -- no visibility into any other
+  project's existence or status without reopening it. Added
+  `ui/dashboard.py`'s `ProjectDashboard`: a table over
+  `Settings.recent_projects` showing name/model type/last run
+  status/last-modified, colored by status, double-click to open.
+- The Projects tree dock (`ui/main_window.py`) only ever held a single
+  placeholder item or the one currently-open project -- it now lists
+  every recent project (bolded/expanded for whichever one is open),
+  double-click opens it, same as the dashboard.
+- `MainWindow._on_new_project`'s failure path silently did nothing if
+  the freshly created project couldn't be reloaded (`except (OSError,
+  ValueError): project = None` then just skip) -- the exact class of
+  silent failure this whole roadmap's "workflow clarity" phase exists
+  to close. Now shows a `QMessageBox.warning` naming the directory and
+  the exception instead.
+- Run status changes (`RunTab.runner.status_changed`) now trigger
+  `MainWindow.refresh_project_views()` so the dashboard/tree don't go
+  stale while a simulation most recently opened is still running.
+
+Design choice: the Dashboard is a permanent tab at index 0, never
+removed by `open_project()` (which now only clears tabs *after* it) --
+switching projects no longer requires going back through File > Open;
+clicking the Dashboard tab is always available.
+
+A project whose `project.json` can't be loaded (moved/deleted folder,
+corrupt file) is shown as "missing / unreadable" in both the dashboard
+and the tree instead of being silently dropped from the list, so a
+vanished project doesn't look like it never existed.
+
 ## 2026-09-14 — Run tab could silently sit at "running" with no log/plot
 
 Reported symptom: "the status is running, but there is no plot, no log

@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QSplitter,
 )
 from PyQt5.QtCore import Qt
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 
 from app.log_parser import CG_SPECIFIC_TERMS
 from app.project import Project
@@ -81,8 +82,14 @@ class RunTab(QWidget):
         layout.addWidget(self.status_label)
 
         splitter = QSplitter(Qt.Vertical)
-        self.canvas = MplCanvas(title="Energy / Temperature", ylabel="value")
-        splitter.addWidget(self.canvas)
+        plot_container = QWidget()
+        plot_layout = QVBoxLayout(plot_container)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
+        self.canvas = MplCanvas(title="Energy / Temperature", ylabel="Energy")
+        self.plot_toolbar = NavigationToolbar2QT(self.canvas, plot_container)
+        plot_layout.addWidget(self.plot_toolbar)
+        plot_layout.addWidget(self.canvas)
+        splitter.addWidget(plot_container)
 
         self.raw_log_view = QPlainTextEdit()
         self.raw_log_view.setReadOnly(True)
@@ -125,6 +132,16 @@ class RunTab(QWidget):
             timestep_fs=self.project.parameters.timestep_fs,
             output_frequency=self.project.parameters.output_frequency,
             langevin_friction=self.project.parameters.langevin_friction,
+            ensemble=self.project.parameters.ensemble,
+            pressure_atm=self.project.parameters.pressure_atm,
+            use_position_restraints=self.project.parameters.use_position_restraints,
+            position_restraint_force_constant=self.project.parameters.position_restraint_force_constant,
+            remd_enabled=self.project.parameters.remd_enabled,
+            remd_exchange_period=self.project.parameters.remd_exchange_period,
+            remd_temperatures=self.project.parameters.remd_temperatures,
+            gamd_enabled=self.project.parameters.gamd_enabled,
+            gamd_update_period=self.project.parameters.gamd_update_period,
+            gamd_sigma0_pot=self.project.parameters.gamd_sigma0_pot,
             restart_file=rst_name,
             box_x=box_x,
             box_y=box_y,
@@ -166,7 +183,14 @@ class RunTab(QWidget):
 
         for name, ys in self._energy_series.items():
             xs = self._energy_x[-len(ys):]
-            self.canvas.set_series(name, xs, ys)
+            if name == "TEMPERATURE":
+                # Separate axis: temperature (~hundreds of K) shares no
+                # meaningful scale with energy terms (often thousands of
+                # kcal/mol) -- on one shared axis temperature's own
+                # variation was effectively invisible. See DECISIONS.md.
+                self.canvas.set_series(name, xs, ys, axis="secondary", ylabel="Temperature (K)")
+            else:
+                self.canvas.set_series(name, xs, ys)
         self.canvas.rescale_and_draw()
 
         if records:

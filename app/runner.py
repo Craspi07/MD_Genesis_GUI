@@ -38,6 +38,7 @@ def build_wrapper_script(
     log_file: str = RUN_LOG_NAME,
     pgid_file: str = PGID_FILE_NAME,
     extra_mpirun_args: str = "",
+    n_replicas: int = 1,
 ) -> str:
     """The exact command launched inside WSL for a simulation run.
 
@@ -46,14 +47,25 @@ def build_wrapper_script(
     `mpirun` so the group ID survives the exec (gotcha #3: killing mpirun
     alone doesn't reliably kill the MPI ranks — the whole group must be
     signaled).
+
+    `n_replicas` > 1 is a REMD run: GENESIS User Guide 2.0.0 Ch. 15 confirms
+    REMD is still one `mpirun` launch of the same binary, not N separate
+    processes -- "at least one MPI process must be assigned to one
+    replica," and the control file's own `[REMD]` section tells GENESIS how
+    to partition its ranks into replicas internally. So the only change
+    needed here is requesting `resources.mpi_ranks * n_replicas` total
+    ranks (mpi_ranks acts as "ranks per replica" in that case) -- no new
+    process-management logic, unlike this module's docstring originally
+    assumed before Phase 4's own research corrected it (see DECISIONS.md).
     """
     mpi_args = settings.mpi_args_for(resources.omp_threads)
     if extra_mpirun_args:
         mpi_args = f"{mpi_args} {extra_mpirun_args}"
+    total_ranks = resources.mpi_ranks * max(n_replicas, 1)
     inner = (
         f"echo $$ > {shlex.quote(pgid_file)}; "
         f"export OMP_NUM_THREADS={resources.omp_threads}; "
-        f"exec mpirun -np {resources.mpi_ranks} {mpi_args} {resources.engine.value} "
+        f"exec mpirun -np {total_ranks} {mpi_args} {resources.engine.value} "
         f"{shlex.quote(control_file)} > {shlex.quote(log_file)} 2>&1"
     )
     return f"setsid bash -c {shlex.quote(inner)} < /dev/null &"
@@ -116,7 +128,8 @@ class SimulationRunner(QObject):
     # -- lifecycle -----------------------------------------------------------
     def start(self, is_continuation: bool = False) -> None:
         self._cleanup_previous_outputs(is_continuation=is_continuation)
-        script = build_wrapper_script(self.project.resources, self._settings())
+        n_replicas = self.project.parameters.remd_n_replicas if self.project.parameters.remd_enabled else 1
+        script = build_wrapper_script(self.project.resources, self._settings(), n_replicas=n_replicas)
         self.bridge.run(f"cd {self.project.directory} && {script}")
         self._offset = 0
         self._start_time = time.time()
@@ -143,11 +156,18 @@ class SimulationRunner(QObject):
         cleared for a *fresh* start -- a continuation run needs that
         exact file as its [INPUT] restart file, and deleting it would
         destroy the very thing "Continue" is supposed to resume from.
+
+        REMD runs (Roadmap Phase 4) write per-replica files instead
+        (`{prefix}_rep<N>.pdb/.dcd/.rst/.log/.rem`, GENESIS's own `{}`
+        replica-index substitution -- see _common_sections.j2), so the
+        same collision risk applies to a `_rep*` glob instead of the
+        plain filenames.
         """
         prefix = self.project.name
-        targets = [f"{prefix}.pdb", f"{prefix}.dcd"]
+        targets = [f"{prefix}.pdb", f"{prefix}.dcd", f"{prefix}_rep*.pdb", f"{prefix}_rep*.dcd", f"{prefix}_rep*.log", f"{prefix}_rep*.rem"]
         if not is_continuation:
             targets.append(f"{prefix}.rst")
+            targets.append(f"{prefix}_rep*.rst")
         self.bridge.run(f"cd {self.project.directory} && rm -f " + " ".join(targets))
 
     def _settings(self) -> Settings:

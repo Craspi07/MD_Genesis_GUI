@@ -35,6 +35,13 @@ def local_directory_for(settings: Settings, project_name: str) -> str:
     return rf"\\wsl$\{settings.distro}\home\{settings.linux_user}\genesis_projects\{project_name}"
 
 
+def local_projects_root_for(settings: Settings) -> str:
+    r"""The local filesystem path of the projects root itself (parent of
+    every local_directory_for(...) path) -- used as the starting
+    directory for File > Open Project's folder picker."""
+    return rf"\\wsl$\{settings.distro}\home\{settings.linux_user}\genesis_projects"
+
+
 @dataclass
 class CreationResult:
     success: bool
@@ -218,6 +225,16 @@ def generate_project_control_file(project: Project, local_directory: str, force:
         timestep_fs=project.parameters.timestep_fs,
         output_frequency=project.parameters.output_frequency,
         langevin_friction=project.parameters.langevin_friction,
+        ensemble=project.parameters.ensemble,
+        pressure_atm=project.parameters.pressure_atm,
+        use_position_restraints=project.parameters.use_position_restraints,
+        position_restraint_force_constant=project.parameters.position_restraint_force_constant,
+        remd_enabled=project.parameters.remd_enabled,
+        remd_exchange_period=project.parameters.remd_exchange_period,
+        remd_temperatures=project.parameters.remd_temperatures,
+        gamd_enabled=project.parameters.gamd_enabled,
+        gamd_update_period=project.parameters.gamd_update_period,
+        gamd_sigma0_pot=project.parameters.gamd_sigma0_pot,
         box_x=box_x,
         box_y=box_y,
         box_z=box_z,

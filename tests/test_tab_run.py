@@ -33,6 +33,8 @@ def test_run_tab_updates_progress_and_plot_on_new_records(tmp_path: Path):
     assert "POTENTIAL_ENE" in tab._energy_series
     assert tab._energy_series["POTENTIAL_ENE"] == [-150.0, -151.0]
     assert "TOTAL_ENE" in tab.canvas._lines
+    assert "TEMPERATURE" in tab.canvas._lines2  # Roadmap Phase 6: separate y-axis
+    assert "TEMPERATURE" not in tab.canvas._lines
 
 
 def test_run_tab_status_changed_to_finished_enables_start(tmp_path: Path):
