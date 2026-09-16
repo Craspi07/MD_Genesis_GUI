@@ -7,6 +7,7 @@ from app.project_creation import (
     run_cg_tool_pipeline,
     generate_project_control_file,
     local_directory_for,
+    local_projects_root_for,
     copy_cg_tool_param,
 )
 from app.settings import Settings
@@ -27,6 +28,15 @@ def test_local_directory_for():
     assert "Ubuntu-24.04" in path
     assert "biplab" in path
     assert "myproj" in path
+
+
+def test_local_projects_root_for_is_the_parent_of_local_directory_for():
+    settings = Settings()
+    settings.distro = "Ubuntu-24.04"
+    settings.linux_user = "biplab"
+    root = local_projects_root_for(settings)
+    project_dir = local_directory_for(settings, "myproj")
+    assert project_dir == f"{root}\\myproj"
 
 
 def test_create_project_files_pdb_mode(tmp_path: Path):

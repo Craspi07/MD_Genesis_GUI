@@ -2,6 +2,24 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-16 — File > Open Project
+
+Requested directly: reopening an already-created project previously
+required either the Dashboard tab or the Projects tree dock -- there
+was no File menu equivalent of "Open Project," which is the
+conventional place to look for it and the only path that lets a user
+open a project GENESIS Studio has never seen before in this session's
+`Settings.recent_projects` (e.g. one created on a different machine
+sharing the same WSL projects folder). Added `File > Open Project...`
+(Ctrl+O) using `QFileDialog.getExistingDirectory`, starting at the
+projects root (new `local_projects_root_for()` in
+`app/project_creation.py`, factored out of the existing
+`local_directory_for()` so the UNC-path construction logic stays in one
+place per CLAUDE.md). Picking a folder that isn't a real project
+(missing/corrupt `project.json`) shows a `QMessageBox.warning` rather
+than failing silently, matching the pattern already established for
+`File > New Project`'s and the dashboard's own load-failure paths.
+
 ## 2026-09-16 — Roadmap Phase 6: plotting upgrade (secondary axis, zoom/pan, CSV export)
 
 No GENESIS docs to verify this time -- pure UI/UX, the last of the six

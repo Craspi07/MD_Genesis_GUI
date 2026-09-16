@@ -82,6 +82,11 @@ class MainWindow(QMainWindow):
         new_project.triggered.connect(self._on_new_project)
         file_menu.addAction(new_project)
 
+        open_project = QAction("&Open Project...", self)
+        open_project.setShortcut("Ctrl+O")
+        open_project.triggered.connect(self._on_open_project)
+        file_menu.addAction(open_project)
+
         file_menu.addSeparator()
         quit_action = QAction("&Quit", self)
         quit_action.setShortcut("Ctrl+Q")
@@ -134,6 +139,30 @@ class MainWindow(QMainWindow):
                 "Project creation failed",
                 f"The project wizard finished, but '{name}' could not be opened "
                 f"from {local_dir}:\n\n{exc}",
+            )
+            return
+        self.settings.add_recent_project(local_dir)
+        self.settings.save()
+        self.refresh_project_views()
+        self.open_project(project, local_dir)
+
+    def _on_open_project(self) -> None:
+        from PyQt5.QtWidgets import QFileDialog
+        from app.project_creation import local_projects_root_for
+
+        start_dir = local_projects_root_for(self.settings)
+        if not Path(start_dir).exists():
+            start_dir = ""
+        local_dir = QFileDialog.getExistingDirectory(self, "Open Project", start_dir)
+        if not local_dir:
+            return
+        try:
+            project = Project.load(local_dir)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(
+                self,
+                "Can't open project",
+                f"'{local_dir}' doesn't look like a GENESIS Studio project:\n\n{exc}",
             )
             return
         self.settings.add_recent_project(local_dir)

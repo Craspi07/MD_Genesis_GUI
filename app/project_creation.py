@@ -35,6 +35,13 @@ def local_directory_for(settings: Settings, project_name: str) -> str:
     return rf"\\wsl$\{settings.distro}\home\{settings.linux_user}\genesis_projects\{project_name}"
 
 
+def local_projects_root_for(settings: Settings) -> str:
+    r"""The local filesystem path of the projects root itself (parent of
+    every local_directory_for(...) path) -- used as the starting
+    directory for File > Open Project's folder picker."""
+    return rf"\\wsl$\{settings.distro}\home\{settings.linux_user}\genesis_projects"
+
+
 @dataclass
 class CreationResult:
     success: bool

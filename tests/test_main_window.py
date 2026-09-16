@@ -75,6 +75,56 @@ def test_double_clicking_tree_item_opens_project(tmp_path: Path, monkeypatch):
     assert window.current_project.name == "proj_tree"
 
 
+def test_open_project_via_file_menu_loads_and_opens_project(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.settings.QSettings", lambda *a, **k: _FakeQSettings())
+    window = MainWindow()
+    project_dir = _make_project_dir(tmp_path, "reopened_proj")
+
+    monkeypatch.setattr(
+        "PyQt5.QtWidgets.QFileDialog.getExistingDirectory", staticmethod(lambda *a, **k: str(project_dir))
+    )
+
+    window._on_open_project()
+
+    assert window.current_project is not None
+    assert window.current_project.name == "reopened_proj"
+    assert str(project_dir) in window.settings.recent_projects
+    titles = [window.tabs.tabText(i) for i in range(window.tabs.count())]
+    assert titles == ["Dashboard", "Files", "Run", "Analysis"]
+
+
+def test_open_project_cancelled_dialog_does_nothing(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.settings.QSettings", lambda *a, **k: _FakeQSettings())
+    window = MainWindow()
+
+    monkeypatch.setattr("PyQt5.QtWidgets.QFileDialog.getExistingDirectory", staticmethod(lambda *a, **k: ""))
+
+    window._on_open_project()
+
+    assert window.current_project is None
+    assert window.tabs.count() == 1
+
+
+def test_open_project_invalid_directory_shows_message(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.settings.QSettings", lambda *a, **k: _FakeQSettings())
+    window = MainWindow()
+    not_a_project = tmp_path / "not_a_project"
+    not_a_project.mkdir()
+
+    monkeypatch.setattr(
+        "PyQt5.QtWidgets.QFileDialog.getExistingDirectory", staticmethod(lambda *a, **k: str(not_a_project))
+    )
+    warned = {}
+    monkeypatch.setattr(
+        QMessageBox, "warning", staticmethod(lambda *a, **k: warned.__setitem__("called", True))
+    )
+
+    window._on_open_project()
+
+    assert warned.get("called") is True
+    assert window.current_project is None
+
+
 def test_new_project_load_failure_shows_message_instead_of_silent_no_op(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("app.settings.QSettings", lambda *a, **k: _FakeQSettings())
     window = MainWindow()
