@@ -41,6 +41,12 @@ class ControlFileConfig:
     pressure_atm: float = 1.0  # GENESIS User Guide 2.0.0 Sec. 10.1 default target pressure, only used when ensemble == "NPT"
     use_position_restraints: bool = False
     position_restraint_force_constant: float = 10.0  # GENESIS User Guide 2.0.0 Sec. 16.4's own POSI example
+    remd_enabled: bool = False
+    remd_exchange_period: int = 1000
+    remd_temperatures: Optional[list] = None
+    gamd_enabled: bool = False
+    gamd_update_period: int = 0
+    gamd_sigma0_pot: float = 6.0
     restart_file: Optional[str] = None
     box_x: Optional[float] = None
     box_y: Optional[float] = None
@@ -110,6 +116,13 @@ def render_control_file(config: ControlFileConfig, model_type: ModelType) -> str
         # NPT/NPAT/NPgT couple to the periodic box; NOBC model types (HPS_SINGLE,
         # PROTEIN_DNA) have no box for a barostat to act on.
         raise ValueError(f"{model_type.value} has no periodic box; only NVT is valid for it")
+    if config.remd_enabled and len(config.remd_temperatures or []) < 2:
+        # GENESIS User Guide 2.0.0 Ch. 15: T-REMD needs at least 2 replicas to exchange between.
+        raise ValueError("REMD needs at least 2 replica temperatures")
+    if config.gamd_enabled and config.gamd_update_period <= 0:
+        # Sec. 17.1: update_period == 0 means GaMD parameters are never updated -- a
+        # syntactically valid but scientifically inert control file, not a real GaMD run.
+        raise ValueError("GaMD needs update_period > 0 to actually adapt its boost potential")
     env = _environment()
     template = env.get_template(template_name)
     return template.render(config=config)

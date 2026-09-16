@@ -2,6 +2,72 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-16 — Roadmap Phase 4: REMD (T-REMD) + GaMD
+
+Continued researching the same GENESIS User Guide v2.0.0 PDF used for
+Phase 3 (Ch. 15 `[REMD]`, Sec. 5.2 REMD output files, Ch. 17 `[GAMD]`).
+
+**Corrected a wrong assumption from `ROADMAP.md`'s own original
+write-up**: it assumed REMD would need `runner.py` to "manage N
+processes instead of 1 — real architecture change." The User Guide
+(Ch. 15) says otherwise: "REMD simulations in GENESIS require an MPI
+environment. At least one MPI process must be assigned to one replica"
+-- meaning REMD is **one** `mpirun` launch of the same `atdyn`/`cgdyn`
+binary with more total ranks (ranks-per-replica x n_replicas); the
+control file's own `[REMD]` section tells GENESIS how to partition
+ranks into replicas internally. So Phase 4 needed no new process-
+management architecture: `app/runner.py`'s `build_wrapper_script`
+gained an `n_replicas` parameter that just multiplies `-np`, and
+`SimulationRunner.start()` passes `project.parameters.remd_n_replicas`
+through when REMD is enabled. This is a good example of why this
+session's discipline is "verify before building," not "guess an
+architecture, then build toward the guess."
+
+**REMD output files**: confirmed (Sec. 5.2/5.6) that REMD requires
+`{}` in `logfile`/`dcdfile`/`remfile`/`rstfile` -- GENESIS substitutes
+it with the replica index itself. `pdbfile` (ATDYN's restart-PDB
+convenience file) is not mentioned as needing `{}` and isn't confirmed
+either way, so it's omitted entirely under REMD rather than guessed
+one way or the other. `app/runner.py`'s `_cleanup_previous_outputs`
+extended to `rm -f` a `_rep*` glob for these files (same collision risk
+as the plain-filename case already fixed 2026-09-14, just replica-
+indexed).
+
+**Scope explicitly narrowed, not guessed around**: the User Guide
+documents REUS, gREST, multi-dimensional REMD, and REMD/GaMD
+combinations (GaREUS) -- none of that is exposed. T-REMD (temperature
+exchange) is the only REMD type implemented, since it's the simplest,
+has a complete confirmed example (Sec. 15.4.1), and this app has no
+existing collective-variable/reaction-coordinate concept a REUS UI
+would need. Replica temperatures are typed directly by the user (space-
+separated, validated to match the replica count) rather than
+auto-generated, since the User Guide itself defers to an external tool
+("REMD temperature generator", http://folding.bmc.uu.se/remd/) for
+choosing a good ladder -- inventing a spacing formula here would be
+exactly the kind of unconfirmed guess this codebase avoids.
+
+**GaMD**: `boost_type = POTENTIAL` is the only mode offered. `DUAL`
+(the GENESIS default) and `DIHEDRAL` both need a `sigma0_dih` keyword
+whose documented default wasn't visible in the fetched pages -- rather
+than guess a number for an energy-scale parameter, only `POTENTIAL`
+(needs `sigma0_pot` only, confirmed default 6.0 kcal/mol) is exposed.
+`update_period` defaults to GENESIS's own documented 0, but 0 means
+"never adapt" -- a syntactically valid, scientifically inert control
+file -- so `render_control_file` now raises if `gamd_enabled` and
+`update_period <= 0`, and the wizard checkbox auto-fills 500 (a
+non-zero starting point the user must still review, not a validated
+GENESIS-recommended value) the moment it's checked, so the checkbox is
+never left in that silently-broken state.
+
+**Engine gating**: the User Guide's own regression-test directory
+listing (Sec. 2.1.4) names `test_gamd_atdyn`/`test_gamd_spdyn` but no
+cgdyn equivalent, and `test_remd_spdyn`/`test_remd_common` but neither
+an atdyn- nor cgdyn-specific REMD test. Since this app only ever
+targets atdyn/cgdyn (never spdyn), *neither* engine's REMD support is
+directly confirmed, so REMD's `# VERIFY` note applies regardless of
+engine; GaMD's only applies when the engine isn't atdyn, since atdyn
+specifically is confirmed while cgdyn is not.
+
 ## 2026-09-16 — Roadmap Phase 3: NPT ensemble + position restraints
 
 Verified against the real **GENESIS User Guide v2.0.0 PDF**

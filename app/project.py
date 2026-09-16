@@ -51,6 +51,13 @@ class SimulationParameters:
     pressure_atm: float = 1.0  # GENESIS User Guide 2.0.0 Sec. 10.1 default target pressure for NPT
     use_position_restraints: bool = False
     position_restraint_force_constant: float = 10.0  # matches the User Guide's own POSI restraint example (Sec. 16.4)
+    remd_enabled: bool = False
+    remd_n_replicas: int = 4
+    remd_exchange_period: int = 1000  # GENESIS User Guide 2.0.0 Ch. 15 T-REMD example (Sec. 15.4.1)
+    remd_temperatures: List[float] = field(default_factory=list)
+    gamd_enabled: bool = False
+    gamd_update_period: int = 0  # GENESIS User Guide 2.0.0 Sec. 17.1 default; 0 means GaMD never adapts
+    gamd_sigma0_pot: float = 6.0  # GENESIS User Guide 2.0.0 Sec. 17.1 default (kcal/mol)
     random_seed: int = 12345
 
 

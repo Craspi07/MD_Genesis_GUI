@@ -73,13 +73,32 @@ aren't tutorial-specific.
       there's nothing to attach boundary options to (would be Phase 5+
       scope, not this phase's).
 
-## Phase 4 — Enhanced sampling (REMD / GaMD)
-Layered on top of whatever ensembles exist from Phase 3.
-- [ ] `[REMD]` control-file section + multi-replica job launch/monitor
-      (runner.py needs to manage N processes instead of 1 — real
-      architecture change, not just a template addition).
-- [ ] GaMD control-file section for existing CG (and later AA) models.
-- [ ] Run tab / dashboard support for viewing per-replica status.
+## Phase 4 — Enhanced sampling (REMD / GaMD) [x] done 2026-09-16
+Corrected assumption from the original write-up: REMD does **not**
+need runner.py to manage N processes. GENESIS User Guide 2.0.0 Ch. 15
+confirms REMD is one `mpirun` launch of the same binary with more total
+ranks (ranks-per-replica x n_replicas) -- GENESIS's own `[REMD]` section
+tells it how to partition those ranks into replicas internally. So this
+phase reused the existing single-launch machinery instead of a new
+architecture.
+- [x] `[REMD]` control-file section (T-REMD: temperature exchange only
+      -- REUS/gREST/multi-dimensional REMD documented in the User Guide
+      but not exposed, to keep the wizard's temperature-list UI simple
+      and avoid guessing a collective-variable UI that has no use case
+      in this app yet) + `runner.py`'s `build_wrapper_script` scaling
+      `-np` by replica count; `_cleanup_previous_outputs` extended to
+      glob `_rep*` per-replica output files.
+- [x] `[GAMD]` control-file section (`boost_type = POTENTIAL` only --
+      DUAL/DIHEDRAL need a `sigma0_dih` default this app couldn't
+      confirm, so they're not offered rather than guessed), gated with
+      a `# VERIFY` note when the engine isn't atdyn (the User Guide's
+      own regression tests only name `test_gamd_atdyn`/`test_gamd_spdyn`,
+      not cgdyn).
+- [ ] Run tab / dashboard support for viewing per-replica status --
+      deferred. Each replica does get its own `logfile`/`dcdfile` (Sec.
+      5.2), so this is now plumbable, but parsing real REMD stdout to
+      confirm the standard-output format `GenesisLogParser` would need
+      to keep working hasn't been verified against a real run yet.
 
 ## Phase 5 — All-atom MD pipeline
 The big one: CHARMM/AMBER force fields, solvation + ion placement,

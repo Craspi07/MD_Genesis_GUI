@@ -12,10 +12,22 @@ groreffile = {{ config.gro_file }}   # GENESIS User Guide 2.0.0 Sec. 13.1: POSI 
 {%- endif %}
 
 [OUTPUT]
+{% if config.remd_enabled -%}
+logfile = {{ config.output_prefix }}_rep{}.log   # GENESIS User Guide 2.0.0 Sec. 5.2/5.6: REMD requires '{}' in per-replica filenames
+dcdfile = {{ config.output_prefix }}_rep{}.dcd   # Sec. 5.2/5.6
+remfile = {{ config.output_prefix }}_rep{}.rem   # Sec. 5.2: replica-exchange parameter-index log, needed by remd_convert
+rstfile = {{ config.output_prefix }}_rep{}.rst   # Sec. 5.2/5.6
+# pdbfile omitted under REMD: Sec. 5.2 only confirms logfile/dcdfile/remfile/rstfile need
+# '{}' -- whether the ATDYN-only restart-PDB convenience file also needs it is # VERIFY
+{% else -%}
 pdbfile = {{ config.output_prefix }}.pdb   # tutorial 11.1 pro.inp
 dcdfile = {{ config.output_prefix }}.dcd   # tutorial 11.1 pro.inp
 rstfile = {{ config.output_prefix }}.rst   # tutorial 11.1 pro.inp
 # no logfile keyword: GENESIS writes to stdout, redirected by runner.py
+{% endif -%}
+{% if config.gamd_enabled -%}
+gamdfile = {{ config.output_prefix }}.gamd   # GENESIS User Guide 2.0.0 Sec. 5.3
+{% endif -%}
 
 [DYNAMICS]
 {% if config.engine == "cgdyn" -%}
@@ -62,3 +74,32 @@ function1  = POSI                            # positional restraint; reference c
 constant1  = {{ config.position_restraint_force_constant }}
 select_index1 = 1                            # POSI takes exactly one group (Sec. 13.1)
 {% endif %}
+{% if config.remd_enabled -%}
+
+[REMD]
+dimension       = 1                          # GENESIS User Guide 2.0.0 Ch. 15, T-REMD example (Sec. 15.4.1)
+exchange_period = {{ config.remd_exchange_period }}
+type1           = TEMPERATURE
+nreplica1       = {{ config.remd_temperatures|length }}
+parameters1     = {{ config.remd_temperatures|join(' ') }}
+# VERIFY: the User Guide's own regression-test list (Sec. 2.1.4) names test_remd_spdyn and
+# test_remd_common, but no atdyn- or cgdyn-specific REMD test -- confirm REMD actually works
+# with this app's CG integrator (VVER_CG on atdyn / cgdyn's VVER) before a production run
+{% endif -%}
+{% if config.gamd_enabled -%}
+
+[GAMD]
+gamd          = YES                          # GENESIS User Guide 2.0.0 Sec. 17.1
+boost         = YES
+boost_type    = POTENTIAL                    # DUAL/DIHEDRAL also need sigma0_dih; its
+                                              # documented default wasn't found, so only
+                                              # POTENTIAL (needs sigma0_pot only) is offered
+thresh_type   = LOWER
+update_period = {{ config.gamd_update_period }}
+sigma0_pot    = {{ config.gamd_sigma0_pot }}
+{% if config.engine != "atdyn" -%}
+# VERIFY: GaMD is confirmed by the User Guide's regression tests for atdyn/spdyn
+# (test_gamd_atdyn, test_gamd_spdyn) but cgdyn is not in that list -- confirm cgdyn actually
+# implements [GAMD] before trusting this on a cgdyn run
+{% endif -%}
+{% endif -%}

@@ -3,7 +3,9 @@ from pathlib import Path
 from ui.page_input import InputPage
 from ui.page_model import ModelPage, InputState
 from ui.page_parameters import ParametersPage
+from ui.page_resources import ResourcesPage
 from app.project import ModelType
+from app.settings import Settings
 
 
 def _pdb_text():
@@ -102,3 +104,60 @@ def test_restraint_force_constant_only_enabled_when_checked():
 
     page.position_restraints.setChecked(True)
     assert page.restraint_force_constant.isEnabled()
+
+
+def test_gamd_update_period_only_enabled_when_checked_and_gets_nonzero_default():
+    page = ParametersPage(lambda: ModelType.AICG2P)
+    page.initializePage()
+    assert not page.gamd_update_period.isEnabled()
+    assert page.gamd_update_period.value() == 0
+
+    page.gamd_enabled.setChecked(True)
+    assert page.gamd_update_period.isEnabled()
+    assert page.gamd_update_period.value() > 0  # a checked-but-zero period would fail to render
+
+
+def _resources_page(model_type=ModelType.AICG2P):
+    return ResourcesPage(Settings(), lambda: model_type, lambda: 100)
+
+
+def test_remd_fields_disabled_until_checkbox_enabled():
+    page = _resources_page()
+    page.initializePage()
+    assert not page.remd_n_replicas.isEnabled()
+    assert not page.remd_temperatures.isEnabled()
+    assert not page.remd_exchange_period.isEnabled()
+
+    page.remd_enabled.setChecked(True)
+    assert page.remd_n_replicas.isEnabled()
+    assert page.remd_temperatures.isEnabled()
+    assert page.remd_exchange_period.isEnabled()
+
+
+def test_remd_parses_space_separated_temperatures():
+    page = _resources_page()
+    page.remd_temperatures.setText("298.15 311.79 321.18 330.82")
+    assert page.parsed_remd_temperatures() == [298.15, 311.79, 321.18, 330.82]
+
+
+def test_remd_incomplete_until_temperature_count_matches_replica_count():
+    page = _resources_page()
+    page.initializePage()
+    page.remd_enabled.setChecked(True)
+    page.remd_n_replicas.setValue(4)
+    assert not page.isComplete()  # no temperatures entered yet
+
+    page.remd_temperatures.setText("298.15 311.79 321.18")
+    assert not page.isComplete()  # only 3, needs 4
+
+    page.remd_temperatures.setText("298.15 311.79 321.18 330.82")
+    assert page.isComplete()
+
+
+def test_remd_scales_command_preview_ranks():
+    page = _resources_page()
+    page.initializePage()
+    page.mpi_ranks.setValue(2)
+    page.remd_enabled.setChecked(True)
+    page.remd_n_replicas.setValue(3)
+    assert "-np 6" in page.command_preview.toPlainText()

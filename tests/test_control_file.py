@@ -197,3 +197,59 @@ def test_position_restraints_work_without_a_box_too():
     # for NOBC model types (HPS_SINGLE, PROTEIN_DNA).
     text = render_control_file(_config(use_position_restraints=True), ModelType.HPS_SINGLE)
     assert "[RESTRAINTS]" in text
+
+
+# -- Roadmap Phase 4: REMD + GaMD --------------------------------------------
+def test_remd_adds_section_and_replica_templated_output_files():
+    text = render_control_file(
+        _config(remd_enabled=True, remd_exchange_period=500, remd_temperatures=[300.0, 310.0, 320.0]),
+        ModelType.HPS_SINGLE,
+    )
+    assert "[REMD]" in text
+    assert "nreplica1       = 3" in text
+    assert "parameters1     = 300.0 310.0 320.0" in text
+    assert "exchange_period = 500" in text
+    assert "dcdfile = run_rep{}.dcd" in text
+    assert "rstfile = run_rep{}.rst" in text
+    assert "logfile = run_rep{}.log" in text
+    assert "remfile = run_rep{}.rem" in text
+    assert "pdbfile =" not in text  # omitted under REMD, not confirmed to need '{}' too
+    assert "# VERIFY" in text
+
+
+def test_remd_requires_at_least_two_temperatures():
+    with pytest.raises(ValueError):
+        render_control_file(_config(remd_enabled=True, remd_temperatures=[300.0]), ModelType.HPS_SINGLE)
+
+
+def test_non_remd_render_has_no_remd_section_or_replica_filenames():
+    text = render_control_file(_config(), ModelType.HPS_SINGLE)
+    assert "[REMD]" not in text
+    assert "_rep{}" not in text
+    assert "pdbfile" in text
+
+
+def test_gamd_adds_section_with_confirmed_defaults():
+    text = render_control_file(_config(gamd_enabled=True, gamd_update_period=500, gamd_sigma0_pot=8.0), ModelType.HPS_SINGLE)
+    assert "[GAMD]" in text
+    assert "gamd          = YES" in text
+    assert "boost_type    = POTENTIAL" in text
+    assert "update_period = 500" in text
+    assert "sigma0_pot    = 8.0" in text
+    assert "gamdfile = run.gamd" in text
+
+
+def test_gamd_rejects_zero_update_period():
+    with pytest.raises(ValueError):
+        render_control_file(_config(gamd_enabled=True, gamd_update_period=0), ModelType.HPS_SINGLE)
+
+
+def test_gamd_verify_comment_only_for_non_atdyn_engine():
+    atdyn_text = render_control_file(
+        _config(gamd_enabled=True, gamd_update_period=500, engine="atdyn"), ModelType.HPS_SINGLE
+    )
+    cgdyn_text = render_control_file(
+        _config(gamd_enabled=True, gamd_update_period=500, engine="cgdyn"), ModelType.HPS_SINGLE
+    )
+    assert "cgdyn actually" not in atdyn_text
+    assert "cgdyn actually" in cgdyn_text

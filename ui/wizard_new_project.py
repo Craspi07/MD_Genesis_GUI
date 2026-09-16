@@ -74,6 +74,12 @@ class NewProjectWizard(QWizard):
             pressure_atm=self.parameters_page.pressure.value(),
             use_position_restraints=self.parameters_page.position_restraints.isChecked(),
             position_restraint_force_constant=self.parameters_page.restraint_force_constant.value(),
+            remd_enabled=self.resources_page.remd_enabled.isChecked(),
+            remd_n_replicas=self.resources_page.remd_n_replicas.value(),
+            remd_exchange_period=self.resources_page.remd_exchange_period.value(),
+            remd_temperatures=self.resources_page.parsed_remd_temperatures(),
+            gamd_enabled=self.parameters_page.gamd_enabled.isChecked(),
+            gamd_update_period=self.parameters_page.gamd_update_period.value(),
         )
         if model_type == ModelType.HPS_CONDENSATE:
             parameters.box_size_nm = self.parameters_page.box_z.value()

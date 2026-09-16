@@ -122,9 +122,34 @@ class ParametersPage(QWizardPage):
         restraint_row.addWidget(self.restraint_force_constant)
         form.addRow("", restraint_row)
 
+        gamd_row = QHBoxLayout()
+        self.gamd_enabled = QCheckBox("Enable GaMD (Gaussian accelerated MD)")
+        self.gamd_enabled.setToolTip(
+            "GENESIS User Guide 2.0.0 Sec. 17.1. Confirmed by GENESIS's own regression tests for "
+            "atdyn/spdyn; cgdyn is not in that test list, so it's unconfirmed there (the generated "
+            "file flags this with # VERIFY when the engine isn't atdyn)."
+        )
+        self.gamd_enabled.toggled.connect(self._on_gamd_toggled)
+        gamd_row.addWidget(self.gamd_enabled)
+
+        self.gamd_update_period = QSpinBox()
+        self.gamd_update_period.setRange(0, 1_000_000)
+        self.gamd_update_period.setEnabled(False)
+        self.gamd_update_period.setToolTip(
+            "GaMD parameter update period (steps). Must be > 0 for GaMD to actually adapt -- "
+            "0 (the GENESIS default) means the boost potential never updates."
+        )
+        gamd_row.addWidget(self.gamd_update_period)
+        form.addRow("", gamd_row)
+
         self.eta_label = QLabel("Estimated wall time: not yet benchmarked. Use Tools > Benchmark after creating the project.")
         self.eta_label.setWordWrap(True)
         outer.addWidget(self.eta_label)
+
+    def _on_gamd_toggled(self, checked: bool) -> None:
+        self.gamd_update_period.setEnabled(checked)
+        if checked and self.gamd_update_period.value() == 0:
+            self.gamd_update_period.setValue(500)
 
     def initializePage(self) -> None:
         model_type = self._get_model_type()
