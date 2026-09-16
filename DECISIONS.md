@@ -2,6 +2,40 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-16 — VMD path: auto-detect + fixing "no way to set it" discoverability
+
+Reported: "vmd is not found in the path although it is installed by
+default. Also, there is no option for setting button in GUI to set the
+path manually." The VMD path field (with a Browse... button) has
+existed in the Settings dialog since earlier this session -- the real
+problem was two-fold:
+
+1. **Discoverability**: the dialog was only reachable via
+   `Tools > Health Check...`. A user looking for "where do I set the
+   VMD path" has no reason to click something labeled "Health Check."
+   Renamed the menu action to `Tools > Settings...` (`ui/main_window.
+   py`) -- the dialog itself still opens with its existing "Setup &
+   Health Check" title, so that context isn't lost, but the menu entry
+   now matches what a user would actually search for.
+2. **The default path itself doesn't match every real VMD install**:
+   `Settings.vmd_path` only ever had one hardcoded guess
+   (`C:\Program Files\University of Illinois\VMD\vmd.exe`). Real VMD
+   installers, including the 2.x alpha builds discussed earlier this
+   session, commonly install under a version-suffixed folder instead
+   (e.g. "VMD 2.0 alpha", "VMD 1.9.4a55") -- so "installed by default"
+   can still miss this app's one guessed path.
+
+Added `app/vmd_detect.py`'s `detect_vmd_path()`: searches a small list
+of real install roots (`Program Files`/`Program Files (x86)`, with and
+without the "University of Illinois" vendor folder) plus any
+version-suffixed sibling folder at each root, rather than trusting one
+hardcoded path. Wired to a new "Detect" button in the Settings dialog
+next to the existing Browse... button -- fills the field and reports
+what it found, or says plainly that nothing was found (directing the
+user to Browse... manually) rather than guessing further. This mirrors
+the existing "Detect installed distros" pattern already used for the
+WSL distro field.
+
 ## 2026-09-16 — File > Open Project
 
 Requested directly: reopening an already-created project previously

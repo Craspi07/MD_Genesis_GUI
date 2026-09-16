@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QColor
 
 from app.settings import Settings
+from app.vmd_detect import detect_vmd_path
 from app.wsl import WslBridge, HealthCheckItem
 
 
@@ -91,10 +92,21 @@ class SettingsDialog(QDialog):
         self.vmd_path_edit = QLineEdit()
         self.vmd_path_edit.setPlaceholderText(r"C:\Program Files\...\vmd.exe")
         vmd_row.addWidget(self.vmd_path_edit)
+        self.vmd_detect_button = QPushButton("Detect")
+        self.vmd_detect_button.setToolTip(
+            "Search common install locations (Program Files, including versioned VMD folders "
+            "like \"VMD 2.0 alpha\") for vmd.exe."
+        )
+        self.vmd_detect_button.clicked.connect(self._on_detect_vmd)
+        vmd_row.addWidget(self.vmd_detect_button)
         self.vmd_browse_button = QPushButton("Browse...")
         self.vmd_browse_button.clicked.connect(self._on_browse_vmd)
         vmd_row.addWidget(self.vmd_browse_button)
         form.addRow("VMD path:", vmd_row)
+
+        self.vmd_status_label = QLabel("")
+        self.vmd_status_label.setWordWrap(True)
+        form.addRow("", self.vmd_status_label)
 
         sasa_row = QHBoxLayout()
         self.sasa_radius_file_edit = QLineEdit()
@@ -208,6 +220,17 @@ class SettingsDialog(QDialog):
         )
         if path:
             self.vmd_path_edit.setText(path)
+            self.vmd_status_label.setText("")
+
+    def _on_detect_vmd(self) -> None:
+        found = detect_vmd_path()
+        if found:
+            self.vmd_path_edit.setText(found)
+            self.vmd_status_label.setText(f"Found: {found}")
+        else:
+            self.vmd_status_label.setText(
+                "No VMD install found in common locations. Use Browse... to locate vmd.exe manually."
+            )
 
     def _on_save(self) -> None:
         self.settings.distro = self.distro_combo.currentText().strip() or "Ubuntu-24.04"

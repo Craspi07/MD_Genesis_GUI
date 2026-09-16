@@ -110,7 +110,7 @@ class MainWindow(QMainWindow):
         run_menu.addAction(queue_action)
 
         tools_menu: QMenu = menubar.addMenu("&Tools")
-        health_check = QAction("&Health Check...", self)
+        health_check = QAction("&Settings...", self)
         health_check.triggered.connect(self._on_health_check)
         tools_menu.addAction(health_check)
 
