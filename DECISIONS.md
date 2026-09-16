@@ -2,6 +2,69 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-16 — Delete/Rename project actions on the Dashboard
+
+Requested directly: "Add option to delete the project from GUI, or
+rename." Asked the user to resolve one ambiguity up front -- whether
+rename should be display-name-only or a full directory/file rename --
+and they chose **full rename**: actually renaming the WSL project
+directory and every generated file prefixed with the old project name,
+then regenerating `run.inp` to match, blocked while a run is in
+progress. Delete's scope (remove the directory and its list entry,
+behind a confirmation) needed no clarification.
+
+**New `app/project_management.py`** (kept separate from
+`app/project_creation.py`, which is scoped to *creating* a project):
+`delete_project()` and `rename_project()`, both operating natively
+inside WSL via `WslBridge.run()` (not `shutil` over the `\\wsl$` UNC
+mount -- a real rename/delete is more reliable done on the Linux side,
+consistent with every other multi-file WSL operation in this app).
+Both refuse while `project.last_run_status == "running"`: deleting or
+moving the directory out from under a live job would orphan its
+process group (the pgid the app relies on to stop/reattach lives in
+`project.json`, which is inside that same directory).
+
+`rename_project()`: `mv`s the WSL directory itself, then lists its
+top-level files via `find . -maxdepth 1 -type f -printf '%f\n'` and
+builds the rename plan (old-name-prefixed files only -- e.g.
+`myproj.top` -> `renamed.top`, but `top_all36_prot.rtf` or
+`cgtool.log` untouched) **in Python**, executing the result as a batch
+of `mv -- <quoted old> <quoted new>` commands. Deliberately not done
+via a single shell one-liner using bash parameter-expansion
+(`${f#$old_name}`) with the project name spliced directly into that
+syntax -- listing first and filtering in Python keeps every
+interpolated value going through `shlex.quote()` instead of into a
+shell-syntax-sensitive position. Finally saves `project.json` under
+the new name/directory and calls `generate_project_control_file(...,
+force=True)` to regenerate `run.inp` (whose contents reference the
+now-renamed files by name) -- `force=True` because any manual `run.inp`
+edits are necessarily stale after a rename (the Files tab's own
+"Regenerate" button already discards manual edits the same way, so
+this isn't new behavior, just applying it automatically at the one
+other point where the referenced filenames change).
+
+**Dashboard wiring**: two new buttons ("Delete...", "Rename...") next
+to the existing "Remove From List", each behind a confirmation
+(`QMessageBox.question` for delete's irreversible-data-loss warning;
+`QInputDialog.getText` for rename's new name, whose prompt text
+states up front that `run.inp` gets regenerated and manual edits are
+lost). Both run their WSL work on a `QThread` via `DeleteProjectWorker`/
+`RenameProjectWorker`, the same fire-and-forget-signal pattern already
+used by `HealthCheckWorker`/`ProjectCreationWorker` -- these are
+multi-second blocking WSL calls and must not freeze the GUI thread.
+New `project_deleted(str)` / `project_renamed(str, object, str)`
+signals let `MainWindow` keep `current_project`/`current_project_dir`
+and the open Files/Run/Analysis tabs consistent: deleting the
+currently-open project resets the window back to just the Dashboard
+tab; renaming it calls `open_project()` again with the new project/
+path so every tab rebuilds against the renamed directory instead of
+holding stale references. `Settings.recent_projects` is updated in
+place for both (removed on delete, old path swapped for the new one
+on rename, including `last_project` if it pointed at the renamed
+project) since there was no existing helper for "replace a path,"
+mirroring how the existing "Remove From List" button already mutates
+`settings.recent_projects` directly.
+
 ## 2026-09-16 — Two real all-atom bugs found and fixed against GENESIS's own tutorial materials
 
 Asked to pick a protein to validate the all-atom pipeline against a real

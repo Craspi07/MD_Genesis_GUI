@@ -60,6 +60,8 @@ class MainWindow(QMainWindow):
         self.dashboard = ProjectDashboard(self.settings)
         self.dashboard.new_project_button.clicked.connect(self._on_new_project)
         self.dashboard.project_open_requested.connect(self.open_project)
+        self.dashboard.project_deleted.connect(self._on_project_deleted)
+        self.dashboard.project_renamed.connect(self._on_project_renamed)
         self.tabs.addTab(self.dashboard, "Dashboard")
         self.setCentralWidget(self.tabs)
 
@@ -193,6 +195,21 @@ class MainWindow(QMainWindow):
 
         self.tabs.setCurrentWidget(self.files_tab)
         self.refresh_project_views()
+
+    def _on_project_deleted(self, local_directory: str) -> None:
+        if self.current_project_dir == local_directory:
+            self.current_project = None
+            self.current_project_dir = None
+            while self.tabs.count() > DASHBOARD_TAB_INDEX + 1:
+                self.tabs.removeTab(self.tabs.count() - 1)
+            self.tabs.setCurrentIndex(DASHBOARD_TAB_INDEX)
+        self.refresh_project_views()
+
+    def _on_project_renamed(self, old_local_directory: str, project: Project, new_local_directory: str) -> None:
+        if self.current_project_dir == old_local_directory:
+            self.open_project(project, new_local_directory)
+        else:
+            self.refresh_project_views()
 
     def refresh_project_views(self) -> None:
         """Keep the dashboard tab and the Projects tree in sync with

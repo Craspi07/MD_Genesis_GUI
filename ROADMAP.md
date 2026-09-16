@@ -24,6 +24,11 @@ tree + single-project-at-a-time window into a real home screen.
       open project) with a status icon/color per project.
 - [x] "Remove from list" / "Open containing folder" actions on the
       dashboard.
+- [x] (2026-09-16) "Delete..." / "Rename..." actions on the dashboard --
+      delete permanently removes the project directory (confirmed,
+      blocked while a run is in progress); rename does a full WSL
+      directory + prefixed-generated-file rename with `run.inp`
+      regenerated to match. See `DECISIONS.md`.
 - [x] Closed one concrete silent-failure gap (`_on_new_project` no
       longer no-ops on a load failure). Broader "every WslBridge failure
       gets a consistent message" audit deferred -- not scoped tightly
