@@ -4,7 +4,8 @@ from ui.page_input import InputPage
 from ui.page_model import ModelPage, InputState
 from ui.page_parameters import ParametersPage
 from ui.page_resources import ResourcesPage
-from app.project import ModelType
+from ui.page_all_atom_input import AllAtomInputPage
+from app.project import ModelType, Engine
 from app.settings import Settings
 
 
@@ -33,6 +34,16 @@ def test_input_page_pdb_mode_completeness(tmp_path: Path):
     assert page.isComplete()
 
 
+def test_input_page_all_atom_prebuilt_mode_is_always_complete():
+    page = InputPage()
+    assert not page.is_all_atom_prebuilt()
+
+    page.all_atom_radio.setChecked(True)
+    assert page.is_all_atom_prebuilt()
+    assert page.isComplete()
+    assert page.stack.currentIndex() == 2
+
+
 def test_input_page_sequence_mode_completeness():
     page = InputPage()
     page.seq_radio.setChecked(True)
@@ -52,12 +63,32 @@ def test_model_page_gates_pdb_only_models_in_sequence_mode():
 
     for radio in page.buttons:
         card = page._card_by_button[radio]
-        if card.requires_pdb:
+        if card.requires_pdb or card.requires_all_atom_prebuilt:
             assert not radio.isEnabled()
         else:
             assert radio.isEnabled()
 
     assert page.selected_model() == ModelType.HPS_SINGLE
+
+
+def test_model_page_only_offers_all_atom_when_prebuilt_selected():
+    page = ModelPage(lambda: InputState(is_sequence_mode=False, is_all_atom_prebuilt=True))
+    page.initializePage()
+
+    aa_radio = next(r for r in page.buttons if page._card_by_button[r].model_type == ModelType.ALL_ATOM_CHARMM)
+    assert aa_radio.isEnabled()
+    for radio in page.buttons:
+        if radio is not aa_radio:
+            assert not radio.isEnabled()
+    assert page.selected_model() == ModelType.ALL_ATOM_CHARMM
+
+
+def test_model_page_disallows_all_atom_outside_prebuilt_mode():
+    page = ModelPage(lambda: InputState(is_sequence_mode=False, is_all_atom_prebuilt=False))
+    page.initializePage()
+
+    aa_radio = next(r for r in page.buttons if page._card_by_button[r].model_type == ModelType.ALL_ATOM_CHARMM)
+    assert not aa_radio.isEnabled()
 
 
 def test_model_page_allows_all_non_dna_in_pdb_mode():
@@ -154,6 +185,13 @@ def test_remd_incomplete_until_temperature_count_matches_replica_count():
     assert page.isComplete()
 
 
+def test_engine_locked_to_atdyn_for_all_atom_charmm():
+    page = _resources_page(ModelType.ALL_ATOM_CHARMM)
+    page.initializePage()
+    assert not page.engine_combo.isEnabled()
+    assert page.selected_engine() == Engine.ATDYN
+
+
 def test_remd_scales_command_preview_ranks():
     page = _resources_page()
     page.initializePage()
@@ -161,3 +199,43 @@ def test_remd_scales_command_preview_ranks():
     page.remd_enabled.setChecked(True)
     page.remd_n_replicas.setValue(3)
     assert "-np 6" in page.command_preview.toPlainText()
+
+
+# -- All-atom input page ------------------------------------------------------
+def test_all_atom_input_page_incomplete_by_default():
+    page = AllAtomInputPage()
+    assert not page.isComplete()
+
+
+def test_all_atom_input_page_complete_once_all_fields_set():
+    page = AllAtomInputPage()
+    page.top_files.list_widget.addItem("top_all36_prot.rtf")
+    page.par_files.list_widget.addItem("par_all36m_prot.prm")
+    page.psf_path_edit.setText("input.psf")
+    page.pdb_path_edit.setText("input.pdb")
+    page.box_x.setValue(68.26)
+    page.box_y.setValue(80.24)
+    page.box_z.setValue(66.59)
+    assert page.isComplete()
+
+
+def test_all_atom_input_page_str_files_optional():
+    page = AllAtomInputPage()
+    page.top_files.list_widget.addItem("top_all36_prot.rtf")
+    page.par_files.list_widget.addItem("par_all36m_prot.prm")
+    page.psf_path_edit.setText("input.psf")
+    page.pdb_path_edit.setText("input.pdb")
+    page.box_x.setValue(1.0)
+    page.box_y.setValue(1.0)
+    page.box_z.setValue(1.0)
+    assert page.isComplete()
+    assert page.str_files.paths() == []
+
+
+def test_all_atom_input_page_incomplete_without_box_size():
+    page = AllAtomInputPage()
+    page.top_files.list_widget.addItem("top_all36_prot.rtf")
+    page.par_files.list_widget.addItem("par_all36m_prot.prm")
+    page.psf_path_edit.setText("input.psf")
+    page.pdb_path_edit.setText("input.pdb")
+    assert not page.isComplete()  # box dims default to 0

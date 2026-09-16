@@ -65,16 +65,21 @@ class InputPage(QWizardPage):
         mode_row = QHBoxLayout()
         self.pdb_radio = QRadioButton("Structure file (PDB / CIF)")
         self.seq_radio = QRadioButton("Sequence (for disordered proteins)")
+        self.all_atom_radio = QRadioButton("Pre-built all-atom system (CHARMM)")
         self.pdb_radio.setChecked(True)
         group = QButtonGroup(self)
         group.addButton(self.pdb_radio)
         group.addButton(self.seq_radio)
+        group.addButton(self.all_atom_radio)
         mode_row.addWidget(self.pdb_radio)
         mode_row.addWidget(self.seq_radio)
+        mode_row.addWidget(self.all_atom_radio)
         mode_row.addStretch(1)
         layout.addLayout(mode_row)
 
         self.pdb_radio.toggled.connect(self._on_mode_changed)
+        self.seq_radio.toggled.connect(self._on_mode_changed)
+        self.all_atom_radio.toggled.connect(self._on_mode_changed)
 
         self.stack = QStackedWidget()
         layout.addWidget(self.stack)
@@ -120,9 +125,32 @@ class InputPage(QWizardPage):
         seq_layout.addWidget(self.sequence_status_label)
         self.stack.addWidget(seq_widget)
 
+        # -- pre-built all-atom system mode widget --
+        # GENESIS User Guide 2.0.0 Sec. 4.1: GENESIS never builds atomistic
+        # systems itself -- there's nothing to parse/preview here the way
+        # PDB/sequence mode does. The actual file pickers live on the
+        # wizard's dedicated all-atom input page (skipped for the other two
+        # modes; see ui/wizard_new_project.py's nextId()).
+        all_atom_widget = QWidget()
+        all_atom_layout = QVBoxLayout(all_atom_widget)
+        all_atom_layout.addWidget(QLabel(
+            "For a real explicit-solvent all-atom simulation of an already-prepared\n"
+            "system (e.g. from CHARMM-GUI, VMD/PSFGEN, or CHARMM). Continue to the\n"
+            "next page to pick your topology/parameter/PSF/PDB files and box size."
+        ))
+        all_atom_layout.addStretch(1)
+        self.stack.addWidget(all_atom_widget)
+
     # -- mode switching --------------------------------------------------
-    def _on_mode_changed(self, pdb_checked: bool) -> None:
-        self.stack.setCurrentIndex(0 if pdb_checked else 1)
+    def _on_mode_changed(self, checked: bool) -> None:
+        if not checked:
+            return
+        if self.pdb_radio.isChecked():
+            self.stack.setCurrentIndex(0)
+        elif self.seq_radio.isChecked():
+            self.stack.setCurrentIndex(1)
+        else:
+            self.stack.setCurrentIndex(2)
         self.completeChanged.emit()
 
     # -- PDB handling ------------------------------------------------------
@@ -185,8 +213,13 @@ class InputPage(QWizardPage):
     def isComplete(self) -> bool:
         if self.pdb_radio.isChecked():
             return self.pdb_info is not None
+        if self.all_atom_radio.isChecked():
+            return True  # nothing to fill in on this page for this mode
         result = validate_sequence(self.sequence_edit.toPlainText())
         return result.valid
 
     def is_sequence_mode(self) -> bool:
         return self.seq_radio.isChecked()
+
+    def is_all_atom_prebuilt(self) -> bool:
+        return self.all_atom_radio.isChecked()

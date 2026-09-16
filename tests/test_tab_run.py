@@ -62,3 +62,46 @@ def test_run_tab_continue_button_enabled_with_restart_file(tmp_path: Path):
     (tmp_path / "myproj.rst").write_text("")
     tab = _tab(tmp_path)
     assert tab.continue_button.isEnabled()
+
+
+def test_run_tab_continue_regenerates_control_file_with_restart_file(tmp_path: Path, monkeypatch):
+    (tmp_path / "myproj.rst").write_text("")
+    (tmp_path / "myproj.top").write_text("[ molecules ]\nMOL 1\n")
+    (tmp_path / "myproj.gro").write_text("title\n0\n0.0 0.0 0.0\n")
+    tab = _tab(tmp_path)
+    monkeypatch.setattr(tab.runner, "start", lambda is_continuation=False: None)
+
+    tab._on_continue()
+
+    text = (tmp_path / "run.inp").read_text()
+    assert "rstfile    = myproj.rst" in text
+
+
+def test_run_tab_continue_works_for_all_atom_project(tmp_path: Path, monkeypatch):
+    from app.project import ModelType
+
+    (tmp_path / "myproj.rst").write_text("")
+    (tmp_path / "top_all36_prot.rtf").write_text("* top\n")
+    (tmp_path / "par_all36m_prot.prm").write_text("* par\n")
+    (tmp_path / "input.psf").write_text("PSF\n")
+    (tmp_path / "input.pdb").write_text("ATOM\n")
+
+    project = Project(name="myproj", directory=str(tmp_path), model_type=ModelType.ALL_ATOM_CHARMM)
+    project.parameters.n_steps = 10000
+    project.aa_top_source_paths = ["top_all36_prot.rtf"]
+    project.aa_par_source_paths = ["par_all36m_prot.prm"]
+    project.aa_psf_source_path = "input.psf"
+    project.aa_pdb_source_path = "input.pdb"
+    project.aa_box_x = 68.26
+    project.aa_box_y = 80.24
+    project.aa_box_z = 66.59
+    settings = Settings()
+    settings.distro = "Ubuntu-24.04"
+    tab = RunTab(project, str(tmp_path), settings)
+    monkeypatch.setattr(tab.runner, "start", lambda is_continuation=False: None)
+
+    tab._on_continue()  # must not raise
+
+    text = (tmp_path / "run.inp").read_text()
+    assert "forcefield          = CHARMM" in text
+    assert "rstfile = myproj.rst" in text

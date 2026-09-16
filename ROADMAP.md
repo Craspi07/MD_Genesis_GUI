@@ -100,7 +100,7 @@ architecture.
       confirm the standard-output format `GenesisLogParser` would need
       to keep working hasn't been verified against a real run yet.
 
-## Phase 5 — All-atom MD pipeline [~] control-file layer done 2026-09-16; wizard integration not started
+## Phase 5 — All-atom MD pipeline [x] done 2026-09-16 (control-file layer + wizard integration)
 The big one, and the one that most changed shape once actually
 researched. GENESIS User Guide 2.0.0 Sec. 4.1 confirms GENESIS itself
 never builds atomistic systems (adding missing atoms/H, solvating,
@@ -127,26 +127,42 @@ keywords instead of RESIDCG's.
 - [x] `render_control_file` rejects `ALL_ATOM_CHARMM` without all four
       required input files, and without a box (PME needs one) --
       same "raise instead of guess" pattern as Phase 3's NPT/NOBC guard.
-- [ ] **Not done**: wizard/project-creation integration. There's no UI
-      path yet to create an `ALL_ATOM_CHARMM` project -- no ModelPage
-      card, no page collecting the five file paths + box dimensions, no
-      `project_creation.py` wiring to copy those files into the project
-      directory. The control-file layer is complete and tested
-      (`tests/test_control_file.py`); reaching it currently requires
-      constructing `ControlFileConfig`/calling `write_control_file`
-      directly, or hand-editing `project.json`'s `model_type` and
-      creating `run.inp` via the Files tab. This is real, scoped
-      remaining work, not a stub -- a natural next increment once
-      there's a concrete AA project to test the wizard flow against.
+- [x] **Wizard/project-creation integration** (added 2026-09-16, after
+      being flagged as the obvious next step and then explicitly
+      requested). The Input page gained a third mode, "Pre-built
+      all-atom system (CHARMM)"; picking it routes through a dedicated
+      All-Atom Files page (file pickers for topfile(s)/parfile(s)/
+      optional strfile(s)/psffile/pdbfile + box x/y/z) instead of the
+      CG PDB/sequence page, via `NewProjectWizard.nextId()`; the Model
+      page then only offers the "All-atom (CHARMM)" card. `app/
+      project_creation.py` gained `copy_all_atom_files()` (same
+      copy-into-project-dir-then-reference-by-basename pattern as PDB
+      mode) and a shared `build_control_file_config()` used by both a
+      fresh project and a benchmark sweep. The engine picker is locked
+      to atdyn for this model type (cgdyn is CG-only -- no CHARMM/PME
+      support). `[REMD]`/`[GAMD]` sections were factored out of
+      `_common_sections.j2` into a shared `_remd_gamd_sections.j2` so
+      all-atom mode gets the same REMD/GaMD support Phase 4 built for
+      CG, instead of silently dropping those settings if a user enabled
+      them before switching to all-atom mode -- a real gap this
+      integration pass caught and closed, not merely UI wiring.
+      `ui/tab_run.py`'s "Continue from restart file" and
+      `app/benchmark.py`'s benchmark sweep both used to hardcode the
+      CG-shaped half of control-file generation inline and would have
+      broken (or, for benchmarking, refused to run at all) for an
+      all-atom project; both now go through the same shared
+      `build_control_file_config()` all model types use.
 - [ ] AMBER (`prmtopfile`/`ambcrdfile`) and multi-chain/homo-oligomer AA
       setup (N copies of one prepared chain) -- documented in the User
       Guide (Ch. 4.1.2) but not implemented; homo-oligomer AA setup
       also depends on the external setup tool (e.g. CHARMM-GUI's own
       "Multimer" builder), same as single-chain AA does.
-- [ ] Solvation/ionization "how-to" guidance for users -- not a code
-      change, but the wizard integration above should point users at
-      CHARMM-GUI/PSFGEN rather than leave them guessing what "already
-      prepared" means.
+- [ ] Analysis tab's RMSD/Rg/Q-value/contact-map tools (`app/analysis.
+      py`) still only generate `grotopfile`/`grocrdfile` (GROMACS)
+      `[INPUT]` sections -- not yet updated to use `psffile`/`pdbfile`
+      for an all-atom project, so those buttons would currently produce
+      a wrong/unusable analysis control file for an ALL_ATOM_CHARMM
+      project. A real, scoped gap, not attempted in this pass.
 
 ## Phase 6 — Visual/plotting upgrade [x] done 2026-09-16
 No new GENESIS keywords to verify -- this phase is pure UI/UX, and the

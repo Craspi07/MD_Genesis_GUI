@@ -313,6 +313,26 @@ def test_all_atom_charmm_supports_npt_without_verify_caveat():
     assert "# VERIFY" not in text
 
 
+def test_all_atom_charmm_supports_remd_with_replica_output_files():
+    text = render_control_file(
+        _aa_config(remd_enabled=True, remd_exchange_period=500, remd_temperatures=[300.0, 310.0, 320.0]),
+        ModelType.ALL_ATOM_CHARMM,
+    )
+    assert "[REMD]" in text
+    assert "nreplica1       = 3" in text
+    assert "dcdfile = run_rep{}.dcd" in text
+    assert "rstfile = run_rep{}.rst" in text
+    assert "pdbfile = run.pdb" not in text  # replaced by replica-indexed files under REMD
+
+
+def test_all_atom_charmm_supports_gamd():
+    text = render_control_file(_aa_config(gamd_enabled=True, gamd_update_period=500), ModelType.ALL_ATOM_CHARMM)
+    assert "[GAMD]" in text
+    assert "update_period = 500" in text
+    assert "gamdfile = run.gamd" in text
+    assert "# VERIFY" not in text  # default engine is atdyn, which is confirmed
+
+
 def test_all_atom_charmm_position_restraints_use_pdb_as_reffile():
     text = render_control_file(_aa_config(use_position_restraints=True, position_restraint_force_constant=5.0), ModelType.ALL_ATOM_CHARMM)
     assert "reffile = ../build/input.pdb" in text

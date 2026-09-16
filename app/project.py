@@ -37,6 +37,9 @@ class ModelType(str, Enum):
 class InputMode(str, Enum):
     PDB = "pdb"
     SEQUENCE = "sequence"
+    ALL_ATOM_PREBUILT = "all_atom_prebuilt"  # Roadmap Phase 5 wizard integration: an
+    # already-prepared CHARMM system (topfile/parfile/psffile/pdbfile), not a bare PDB/sequence
+    # genesis_cg_tool would consume -- see ModelType.ALL_ATOM_CHARMM.
 
 
 class Engine(str, Enum):
@@ -83,6 +86,18 @@ class Project:
     input_mode: InputMode = InputMode.PDB
     input_path: str = ""  # Windows-side source PDB/CIF path, if input_mode == PDB
     sequence: str = ""  # if input_mode == SEQUENCE
+    # -- if input_mode == ALL_ATOM_PREBUILT (Roadmap Phase 5 wizard integration):
+    # Windows-side source paths, copied into the project directory by
+    # app/project_creation.py's copy_all_atom_files(); ControlFileConfig's aa_*
+    # fields then reference the copied files by basename only.
+    aa_top_source_paths: List[str] = field(default_factory=list)
+    aa_par_source_paths: List[str] = field(default_factory=list)
+    aa_str_source_paths: List[str] = field(default_factory=list)
+    aa_psf_source_path: str = ""
+    aa_pdb_source_path: str = ""
+    aa_box_x: Optional[float] = None
+    aa_box_y: Optional[float] = None
+    aa_box_z: Optional[float] = None
     parameters: SimulationParameters = field(default_factory=SimulationParameters)
     resources: ResourceConfig = field(default_factory=ResourceConfig)
     created_at: str = ""

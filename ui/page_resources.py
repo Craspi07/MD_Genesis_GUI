@@ -131,7 +131,11 @@ class ResourcesPage(QWizardPage):
     def initializePage(self) -> None:
         model_type = self._get_model_type()
         n_particles = self._get_particle_estimate()
-        if model_type == ModelType.HPS_CONDENSATE:
+        is_all_atom = model_type == ModelType.ALL_ATOM_CHARMM
+        if is_all_atom:
+            self._auto_engine = Engine.ATDYN
+            reason = "atdyn only: cgdyn is CG-only (RESIDCG force field), it has no CHARMM/PME support."
+        elif model_type == ModelType.HPS_CONDENSATE:
             self._auto_engine = Engine.CGDYN
             reason = "Auto-selected cgdyn: condensate/multi-chain systems always use cgdyn."
         elif n_particles >= 5000:
@@ -141,8 +145,9 @@ class ResourcesPage(QWizardPage):
             self._auto_engine = Engine.ATDYN
             reason = f"Auto-selected atdyn: single chain, estimated {n_particles} CG particles (< 5000)."
         self.engine_reason_label.setText(reason)
+        self.engine_combo.setEnabled(not is_all_atom)
 
-        if not self._user_overrode_engine:
+        if not self._user_overrode_engine or is_all_atom:
             self.engine_combo.setCurrentIndex(0)
 
         if not self._defaults_applied:

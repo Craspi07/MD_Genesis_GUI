@@ -9,9 +9,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import List, Optional
 
-from app.control_file import ControlFileConfig, default_box_size, write_control_file
 from app.log_parser import GenesisLogParser, detect_error_lines, detect_slot_error
-from app.project import Project, ResourceConfig
+from app.project import ModelType, Project, ResourceConfig
+from app.project_creation import build_control_file_config
+from app.control_file import write_control_file
 from app.runner import build_wrapper_script
 from app.settings import Settings
 from app.wsl import WslBridge
@@ -58,16 +59,24 @@ def run_benchmark(
     n_steps: int = BENCHMARK_STEPS,
 ) -> List[BenchmarkResult]:
     directory = Path(local_directory)
-    top_files = list(directory.glob(f"{project.name}*.top"))
-    gro_files = list(directory.glob(f"{project.name}*.gro"))
-    if not top_files or not gro_files:
-        return [
-            BenchmarkResult(0, 0, None, None, False, "Project has no .top/.gro yet — create the project first.")
-        ]
+    if project.model_type == ModelType.ALL_ATOM_CHARMM:
+        psf_ok = bool(project.aa_psf_source_path) and (directory / Path(project.aa_psf_source_path).name).exists()
+        pdb_ok = bool(project.aa_pdb_source_path) and (directory / Path(project.aa_pdb_source_path).name).exists()
+        if not psf_ok or not pdb_ok:
+            return [
+                BenchmarkResult(0, 0, None, None, False, "Project has no .psf/.pdb yet — create the project first.")
+            ]
+    else:
+        top_files = list(directory.glob(f"{project.name}*.top"))
+        gro_files = list(directory.glob(f"{project.name}*.gro"))
+        if not top_files or not gro_files:
+            return [
+                BenchmarkResult(0, 0, None, None, False, "Project has no .top/.gro yet — create the project first.")
+            ]
 
     results: List[BenchmarkResult] = []
     for ranks, threads in presets_for(settings.total_cores):
-        result = _run_one_preset(bridge, project, directory, settings, ranks, threads, n_steps, top_files[0].name, gro_files[0].name)
+        result = _run_one_preset(bridge, project, directory, settings, ranks, threads, n_steps)
         results.append(result)
 
     _save_results(directory, results)
@@ -82,8 +91,6 @@ def _run_one_preset(
     ranks: int,
     threads: int,
     n_steps: int,
-    top_name: str,
-    gro_name: str,
 ) -> BenchmarkResult:
     # Tag every preset's files uniquely (not a fixed "benchmark" prefix
     # shared by all of them) -- confirmed 2026-09-14 from a real sweep
@@ -103,20 +110,12 @@ def _run_one_preset(
         f"cd {project.directory} && rm -f {tag}.pdb {tag}.dcd {tag}.rst {log_name} {pgid_name}"
     )
 
-    box_x, box_y, box_z = default_box_size(project.model_type, project.parameters.box_size_nm)
-    config = ControlFileConfig(
-        top_file=top_name,
-        gro_file=gro_name,
-        output_prefix=tag,
-        temperature_k=project.parameters.temperature_k,
-        n_steps=n_steps,
-        timestep_fs=project.parameters.timestep_fs,
-        output_frequency=max(n_steps // 10, 1),
-        langevin_friction=project.parameters.langevin_friction,
-        box_x=box_x,
-        box_y=box_y,
-        box_z=box_z,
-        engine=project.resources.engine.value,
+    # build_control_file_config (app/project_creation.py) branches on
+    # ALL_ATOM_CHARMM vs. CG the same way a real run does, so a benchmark
+    # sweep works for an all-atom project too -- it used to always glob
+    # for .top/.gro, which an all-atom project never produces.
+    config = build_control_file_config(
+        project, str(directory), output_prefix=tag, n_steps=n_steps, output_frequency=max(n_steps // 10, 1)
     )
     write_control_file(config, project.model_type, str(directory), filename=control_filename, force=True)
 

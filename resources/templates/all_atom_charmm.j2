@@ -23,10 +23,21 @@ reffile = {{ config.aa_pdb_file }}   # Sec. 4.4: POSI reference coords for an al
 {% endif -%}
 
 [OUTPUT]
+{% if config.remd_enabled -%}
+dcdfile = {{ config.output_prefix }}_rep{}.dcd   # GENESIS User Guide 2.0.0 Sec. 5.2/5.6: REMD requires '{}' in per-replica filenames
+remfile = {{ config.output_prefix }}_rep{}.rem   # Sec. 5.2: replica-exchange parameter-index log, needed by remd_convert
+rstfile = {{ config.output_prefix }}_rep{}.rst   # Sec. 5.2/5.6
+# no logfile keyword: GENESIS writes to stdout, redirected by runner.py; pdbfile
+# omitted under REMD -- Sec. 5.2 doesn't confirm the ATDYN-only restart-PDB also needs '{}'
+{% else -%}
 pdbfile = {{ config.output_prefix }}.pdb
 dcdfile = {{ config.output_prefix }}.dcd
 rstfile = {{ config.output_prefix }}.rst
 # no logfile keyword: GENESIS writes to stdout, redirected by runner.py
+{% endif -%}
+{% if config.gamd_enabled -%}
+gamdfile = {{ config.output_prefix }}.gamd   # GENESIS User Guide 2.0.0 Sec. 5.3
+{% endif -%}
 
 [DYNAMICS]
 integrator     = VVER                        # GENESIS User Guide 2.0.0 Sec. 10.1 compatibility table (plain
@@ -62,6 +73,7 @@ function1  = POSI
 constant1  = {{ config.position_restraint_force_constant }}
 select_index1 = 1
 {% endif %}
+{% include "_remd_gamd_sections.j2" %}
 
 [ENERGY]
 forcefield          = CHARMM                 # GENESIS User Guide 2.0.0 Sec. 6.1

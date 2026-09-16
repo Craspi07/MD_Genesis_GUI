@@ -11,7 +11,7 @@ from app.benchmark import (
     _diagnose_empty_log,
     _run_one_preset,
 )
-from app.project import Project
+from app.project import ModelType, Project
 from app.settings import Settings
 from app.wsl import WslBridge
 
@@ -124,8 +124,8 @@ def test_run_one_preset_uses_a_unique_tag_and_cleans_up_first(tmp_path: Path):
 
     bridge.run = recording_run
 
-    _run_one_preset(bridge, project, tmp_path, _settings(), ranks=4, threads=4, n_steps=100, top_name="myproj.top", gro_name="myproj.gro")
-    _run_one_preset(bridge, project, tmp_path, _settings(), ranks=8, threads=2, n_steps=100, top_name="myproj.top", gro_name="myproj.gro")
+    _run_one_preset(bridge, project, tmp_path, _settings(), ranks=4, threads=4, n_steps=100)
+    _run_one_preset(bridge, project, tmp_path, _settings(), ranks=8, threads=2, n_steps=100)
 
     assert (tmp_path / "benchmark_4x4.inp").exists()
     assert (tmp_path / "benchmark_8x2.inp").exists()
@@ -136,6 +136,35 @@ def test_run_one_preset_uses_a_unique_tag_and_cleans_up_first(tmp_path: Path):
     assert "benchmark_8x2" not in cleanup_commands[0]
     assert "benchmark_8x2.rst" in cleanup_commands[1]
     assert "benchmark_4x4" not in cleanup_commands[1]
+
+
+def test_run_benchmark_reports_missing_files_for_all_atom_project(tmp_path: Path):
+    project = Project(name="myaa", directory=str(tmp_path), model_type=ModelType.ALL_ATOM_CHARMM)
+    results = run_benchmark(_bridge(), project, str(tmp_path), _settings())
+    assert len(results) == 1
+    assert not results[0].success
+    assert ".psf/.pdb" in results[0].error
+
+
+def test_run_one_preset_builds_all_atom_control_file(tmp_path: Path):
+    (tmp_path / "input.psf").write_text("PSF\n")
+    (tmp_path / "input.pdb").write_text("ATOM\n")
+    (tmp_path / "top_all36_prot.rtf").write_text("* top\n")
+    (tmp_path / "par_all36m_prot.prm").write_text("* par\n")
+    project = Project(name="myaa", directory=str(tmp_path), model_type=ModelType.ALL_ATOM_CHARMM)
+    project.aa_top_source_paths = ["top_all36_prot.rtf"]
+    project.aa_par_source_paths = ["par_all36m_prot.prm"]
+    project.aa_psf_source_path = "input.psf"
+    project.aa_pdb_source_path = "input.pdb"
+    project.aa_box_x = 68.26
+    project.aa_box_y = 80.24
+    project.aa_box_z = 66.59
+
+    _run_one_preset(_bridge(), project, tmp_path, _settings(), ranks=4, threads=4, n_steps=100)
+
+    text = (tmp_path / "benchmark_4x4.inp").read_text()
+    assert "forcefield          = CHARMM" in text
+    assert "psffile = input.psf" in text
 
 
 def test_diagnose_empty_log_reports_slot_error():
