@@ -2,7 +2,72 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
-## 2026-09-17 — Import a CHARMM-GUI archive (.tgz) directly into the all-atom wizard page
+## 2026-09-17 — CHARMM-GUI import crashed the app; wrong premise, missing exception guard
+
+Reported directly: "the GUI crashed when the archive .tgz was used to
+import." Two separate problems, both real:
+
+**1. Wrong premise about CHARMM-GUI's output.** The entry below this one
+assumed every archive has a `genesis/step*.inp` -- true only when
+GENESIS is explicitly selected as the target program in CHARMM-GUI's
+Input Generator. The user corrected this directly: they use Solution
+Builder, which has no such option, and just want the topology `.rtf`,
+parameter `.prm`, stream `.str` (typically `toppar_water_ions.str`),
+final `.psf`/`.pdb`, and box x/y/z out of the archive. Solution Builder
+doesn't ship any single file that states *which* of its bundled 40+
+`toppar/` files a given system actually needs (that's genuinely
+CHARMM-GUI-internal knowledge this app has no reliable way to recover
+from the archive alone), so rather than guess, `app/charmm_gui_import.py`
+was rewritten around only what's safe to auto-detect:
+- the final prepared system, via the highest-numbered `stepN_input.psf`/
+  `.pdb` pair (CHARMM-GUI's own naming for "this is the finished,
+  solvated/ionized system," vs. `step1_pdbreader`/`step2_orient`/etc.
+  along the way);
+- box size, by reading the `CRYST1` record out of that PDB -- a public,
+  stable field of the PDB format itself (spec v3.3: columns 7-15/16-24/
+  25-33 for a/b/c in Angstroms), not a CHARMM-GUI convention, and this
+  app's own `app/validators.py` already relies on the same fixed-column
+  PDB parsing for `ATOM` records.
+
+Topology/parameter/stream selection is left to the user via the
+existing Add.../Browse... pickers, which now default to the extracted
+`toppar/` folder instead of a blank dialog -- solving the actual,
+literally-stated blocker ("Windows env cannot open .tgz") without
+pretending to know which 2-4 of those 40+ files a specific system
+(protein-only vs. +lipid vs. +ligand, etc.) actually needs.
+`import_charmm_gui_archive()` was renamed `extract_charmm_gui_archive()`
+and its result type to `CharmmGuiExtractResult` to match -- it's an
+extraction + best-effort-detection helper now, not a "read CHARMM-GUI's
+answer" parser.
+
+**2. The actual crash: a missing exception guard.** Auditing
+`CharmmGuiImportWorker.run()` (in `ui/page_all_atom_input.py`) while
+investigating turned up a real bug independent of the above: unlike
+every other worker in this codebase (`HealthCheckWorker`,
+`ProjectCreationWorker`, `DeleteProjectWorker`/`RenameProjectWorker`),
+it called the extraction function with no `try`/`except` around it.
+`run()` executes as a slot on a `QThread`; an unhandled Python exception
+raised there doesn't reach the try/except in the code that started the
+thread the way a same-thread call would -- PyQt5 has no safe default
+recovery path for that and the whole application aborts instead of the
+error surfacing anywhere. Since the previous "genesis/step*.inp-only"
+design meant every real Solution-Builder archive hit some code path,
+this was very likely the actual crash mechanism (whichever specific line
+raised first for that archive), not just a theoretical risk. Fixed by
+wrapping the call in `try`/`except Exception` and emitting a
+`CharmmGuiExtractResult(False, ...)` on failure, matching the pattern
+every other worker already uses. This is now also covered by a test
+(`test_charmm_gui_import_worker_reports_an_unexpected_exception_instead
+_of_raising`) that forces an arbitrary exception through `run()` and
+asserts it does *not* propagate -- a regression here would otherwise
+only show up as a real crash, not a failing assertion someone could miss.
+
+## 2026-09-17 — Import a CHARMM-GUI archive (.tgz) directly into the all-atom wizard page (superseded above)
+
+**The `genesis/step*.inp`-based design below was wrong for this app's
+actual users and was replaced same-day -- see the entry above, which is
+authoritative. Left here for the record of what was tried and why it
+didn't hold up, not as current behavior.**
 
 Reported directly: CHARMM-GUI's download is a .tgz, which Windows
 Explorer can't open (no built-in gzip-tarball support, only .zip), so a

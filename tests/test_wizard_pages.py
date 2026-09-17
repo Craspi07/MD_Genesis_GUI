@@ -5,7 +5,7 @@ from ui.page_model import ModelPage, InputState
 from ui.page_parameters import ParametersPage
 from ui.page_resources import ResourcesPage
 from ui.page_all_atom_input import AllAtomInputPage, CharmmGuiImportWorker
-from app.charmm_gui_import import CharmmGuiImportResult
+from app.charmm_gui_import import CharmmGuiExtractResult
 from app.project import ModelType, Engine
 from app.settings import Settings
 
@@ -247,14 +247,9 @@ def test_charmm_gui_import_worker_emits_result(tmp_path: Path):
     import tarfile
 
     src = tmp_path / "src" / "cg"
-    genesis_dir = src / "genesis"
-    genesis_dir.mkdir(parents=True)
-    (genesis_dir / "step6.0_minimization.inp").write_text(
-        "[INPUT]\ntopfile = a.rtf\nparfile = a.prm\npsffile = a.psf\npdbfile = a.pdb\n"
-        "[BOUNDARY]\nbox_size_x = 10\nbox_size_y = 10\nbox_size_z = 10\n"
-    )
-    for name in ("a.rtf", "a.prm", "a.psf", "a.pdb"):
-        (genesis_dir / name).write_text("x\n")
+    src.mkdir(parents=True)
+    (src / "step5_input.psf").write_text("PSF\n")
+    (src / "step5_input.pdb").write_text("ATOM\n")
     archive_path = tmp_path / "cg.tgz"
     with tarfile.open(archive_path, "w:gz") as tar:
         tar.add(src, arcname="cg")
@@ -268,16 +263,35 @@ def test_charmm_gui_import_worker_emits_result(tmp_path: Path):
     assert results[0].success
 
 
+def test_charmm_gui_import_worker_reports_an_unexpected_exception_instead_of_raising(monkeypatch):
+    # This is the exact bug that crashed the app: an uncaught exception
+    # raised inside run() (invoked as a QThread slot) aborts the whole
+    # process instead of surfacing an error -- so run() must never let
+    # one escape, whatever the underlying cause.
+    monkeypatch.setattr(
+        "ui.page_all_atom_input.extract_charmm_gui_archive",
+        lambda path: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    worker = CharmmGuiImportWorker("whatever.tgz")
+    results = []
+    worker.finished.connect(results.append)
+
+    worker.run()  # must not raise
+
+    assert len(results) == 1
+    assert not results[0].success
+    assert "boom" in results[0].message
+
+
 def test_on_import_finished_populates_fields_on_success():
     page = AllAtomInputPage()
-    result = CharmmGuiImportResult(
+    result = CharmmGuiExtractResult(
         True,
-        "Imported from 'step6.0_minimization.inp'.",
-        top_paths=["/tmp/top_all36_prot.rtf"],
-        par_paths=["/tmp/par_all36m_prot.prm"],
-        str_paths=["/tmp/toppar_water_ions.str"],
-        psf_path="/tmp/step5_input.psf",
-        pdb_path="/tmp/step5_input.pdb",
+        "Extracted to /tmp/charmm_gui_import_xyz.",
+        extracted_dir="/tmp/charmm_gui_import_xyz",
+        toppar_dir="/tmp/charmm_gui_import_xyz/toppar",
+        psf_path="/tmp/charmm_gui_import_xyz/step5_input.psf",
+        pdb_path="/tmp/charmm_gui_import_xyz/step5_input.pdb",
         box_x=68.26,
         box_y=80.24,
         box_z=66.59,
@@ -285,24 +299,38 @@ def test_on_import_finished_populates_fields_on_success():
 
     page._on_import_finished(result)
 
-    assert page.top_files.paths() == ["/tmp/top_all36_prot.rtf"]
-    assert page.par_files.paths() == ["/tmp/par_all36m_prot.prm"]
-    assert page.str_files.paths() == ["/tmp/toppar_water_ions.str"]
-    assert page.psf_path_edit.text() == "/tmp/step5_input.psf"
-    assert page.pdb_path_edit.text() == "/tmp/step5_input.pdb"
+    assert page.psf_path_edit.text() == "/tmp/charmm_gui_import_xyz/step5_input.psf"
+    assert page.pdb_path_edit.text() == "/tmp/charmm_gui_import_xyz/step5_input.pdb"
     assert page.box_x.value() == 68.26
     assert page.box_y.value() == 80.24
     assert page.box_z.value() == 66.59
-    assert page.isComplete()
+    assert page.top_files._start_dir == "/tmp/charmm_gui_import_xyz/toppar"
+    assert page._browse_start_dir == "/tmp/charmm_gui_import_xyz"
+
+
+def test_on_import_finished_leaves_psf_pdb_blank_when_not_auto_detected():
+    page = AllAtomInputPage()
+    page.psf_path_edit.setText("existing.psf")
+    result = CharmmGuiExtractResult(
+        True,
+        "Extracted to /tmp/x. No stepN_input.psf/.pdb pair found automatically.",
+        extracted_dir="/tmp/x",
+    )
+
+    page._on_import_finished(result)
+
+    # psf/pdb fields are left alone when nothing was auto-detected, not
+    # blanked out -- only overwritten when the extractor found a pair
+    assert page.psf_path_edit.text() == "existing.psf"
 
 
 def test_on_import_finished_shows_message_and_leaves_fields_alone_on_failure():
     page = AllAtomInputPage()
     page.psf_path_edit.setText("existing.psf")
 
-    page._on_import_finished(CharmmGuiImportResult(False, "No genesis/step*.inp found."))
+    page._on_import_finished(CharmmGuiExtractResult(False, "Could not extract 'bad.tgz': not a gzip file"))
 
-    assert page.charmm_gui_status_label.text() == "No genesis/step*.inp found."
+    assert page.charmm_gui_status_label.text() == "Could not extract 'bad.tgz': not a gzip file"
     assert page.psf_path_edit.text() == "existing.psf"
 
 
