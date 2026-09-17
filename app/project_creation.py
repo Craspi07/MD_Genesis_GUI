@@ -8,6 +8,7 @@ loop or a real WSL install.
 """
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -190,6 +191,35 @@ def copy_cg_tool_param(bridge: WslBridge, project: Project) -> CommandResult:
     return bridge.run(_param_copy_command(project))
 
 
+# genesis_cg_tool's own write_grotop() (src/lib/parser_top.jl) always
+# writes a single-copy [ molecules ] section as "<system_name>  1" --
+# confirmed directly against that source. duplication_generator.jl only
+# ever writes a replicated *.gro (its own source has no write_grotop/
+# write_top call at all); the *.top file it read from is left completely
+# untouched, still declaring 1 copy. GENESIS's own topology reader
+# (read_grotop, same parser_top.jl -- and GENESIS's Define_Molecules at
+# runtime, which uses the identical GROMACS-style convention) multiplies
+# each moleculetype's atom count by this [ molecules ] count to get the
+# system's total atom count, so a real run against a duplicated .gro
+# failed with "Define_Molecules> ... Number of atoms differs." until
+# this count is edited to match n_copies. See DECISIONS.md.
+_MOLECULES_COUNT_RE = re.compile(r"(\[\s*molecules\s*\]\s*\n\s*\S+\s+)(\d+)")
+
+
+def _set_top_molecule_count(top_path: Path, n_copies: int) -> bool:
+    """Rewrite a genesis_cg_tool .top file's [ molecules ] copy count to
+    n_copies. Returns False (does not write anything) if the expected
+    "[ molecules ] \\n<name>  <count>" shape wasn't found, so the caller
+    can fail loudly instead of silently leaving a mismatched .top in
+    place."""
+    text = top_path.read_text()
+    new_text, n_subs = _MOLECULES_COUNT_RE.subn(rf"\g<1>{n_copies}", text, count=1)
+    if n_subs == 0:
+        return False
+    top_path.write_text(new_text)
+    return True
+
+
 def run_cg_tool_pipeline(
     bridge: WslBridge,
     project: Project,
@@ -292,6 +322,25 @@ def run_cg_tool_pipeline(
             # can't pick up the wrong file.
             (directory / single_gro_name).unlink(missing_ok=True)
             log_parts.append(f"$ (local) removed {single_gro_name}")
+
+            # duplication_generator.jl never touches the .top file (it
+            # only writes a .gro -- see _set_top_molecule_count's
+            # docstring), so top_path still declares 1 copy against a
+            # now-n_copies-times-larger .gro. Fix it in place or GENESIS
+            # rejects the file with a real atom-count mismatch at run time.
+            if not _set_top_molecule_count(top_path, project.parameters.n_copies):
+                log_text = "\n".join(log_parts)
+                (directory / "cgtool.log").write_text(log_text)
+                return CreationResult(
+                    False,
+                    f"Could not update {top_path.name}'s [ molecules ] copy count to "
+                    f"{project.parameters.n_copies} -- its format didn't match what "
+                    "genesis_cg_tool's own write_grotop() writes.",
+                    log_text,
+                )
+            log_parts.append(
+                f"$ (local) set {top_path.name}'s [ molecules ] count to {project.parameters.n_copies}"
+            )
 
     log_text = "\n".join(log_parts)
     (directory / "cgtool.log").write_text(log_text)
