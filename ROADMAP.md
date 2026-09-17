@@ -171,18 +171,23 @@ keywords instead of RESIDCG's.
       (no new checkbox) before every all-atom project's main `run.inp`
       is generated. See DECISIONS.md for the full diff against the real
       reference, including what already matched with no changes needed.
-- [x] **Import a CHARMM-GUI archive (.tgz) directly** (2026-09-17) --
-      Windows can't open a .tgz natively, so this was a real workflow
-      blocker for the most common way to prepare an all-atom system.
-      New `app/charmm_gui_import.py` extracts the archive with Python's
-      own `tarfile` (no WSL involved -- this needed a decompressor, not
-      a Linux shell), finds the `genesis/step*.inp` CHARMM-GUI writes
-      when GENESIS is selected as the target program, and reads that
-      file's own `[INPUT]`/`[BOUNDARY]` sections for exactly which
-      topfile/parfile/strfile/psffile/pdbfile and box size this system
-      needs (confirmed against real GENESIS tutorials 6.1/6.2 and their
-      materials -- see DECISIONS.md). Wired into the All-Atom Files
-      wizard page as an "Import from CHARMM-GUI archive..." button.
+- [x] **Import a CHARMM-GUI archive (.tgz) directly** (2026-09-17, revised
+      same day after a real-usage bug report -- see DECISIONS.md for
+      both the original design and the correction). Windows can't open
+      a .tgz natively, so this was a real workflow blocker for the most
+      common way to prepare an all-atom system. New `app/charmm_gui_
+      import.py` extracts the archive with Python's own `tarfile` (no
+      WSL involved -- this needed a decompressor, not a Linux shell)
+      into a temp folder, auto-detects the final `stepN_input.psf`/
+      `.pdb` pair Solution/Membrane Builder writes and the box size from
+      that PDB's own `CRYST1` record (standard PDB format, not CHARMM-
+      GUI-specific), and points the existing topology/parameter/stream
+      file pickers at the extracted `toppar/` folder rather than
+      guessing which of its 40+ bundled files a given system needs.
+      Wired into the All-Atom Files wizard page as an "Import from
+      CHARMM-GUI archive..." button, on a `QThread` with the same
+      exception-safety guard every other worker in this codebase has
+      (a missing one crashed the app on the first real-world try).
 - [ ] AMBER (`prmtopfile`/`ambcrdfile`) and multi-chain/homo-oligomer AA
       setup (N copies of one prepared chain) -- documented in the User
       Guide (Ch. 4.1.2) but not implemented; homo-oligomer AA setup

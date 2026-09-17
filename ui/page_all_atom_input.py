@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from app.charmm_gui_import import CharmmGuiImportResult, import_charmm_gui_archive
+from app.charmm_gui_import import CharmmGuiExtractResult, extract_charmm_gui_archive
 
 
 class _FileListWidget(QWidget):
@@ -40,6 +40,7 @@ class _FileListWidget(QWidget):
         super().__init__(parent)
         self._dialog_caption = dialog_caption
         self._file_filter = file_filter
+        self._start_dir = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -57,8 +58,11 @@ class _FileListWidget(QWidget):
         button_row.addStretch(1)
         layout.addLayout(button_row)
 
+    def set_start_dir(self, start_dir: str) -> None:
+        self._start_dir = start_dir
+
     def _on_add(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(self, self._dialog_caption, "", self._file_filter)
+        paths, _ = QFileDialog.getOpenFileNames(self, self._dialog_caption, self._start_dir, self._file_filter)
         for path in paths:
             self.list_widget.addItem(path)
 
@@ -71,19 +75,26 @@ class _FileListWidget(QWidget):
 
 
 class CharmmGuiImportWorker(QObject):
-    """Runs import_charmm_gui_archive() off the GUI thread -- extracting a
-    real CHARMM-GUI archive (which can bundle its whole toppar/ library,
+    """Runs extract_charmm_gui_archive() off the GUI thread -- extracting a
+    real CHARMM-GUI archive (which bundles its whole toppar/ library,
     tens of MB) shouldn't block the UI for the ~100ms budget CLAUDE.md
-    sets."""
+    sets. Guards the call the same way every other worker in this codebase
+    does (HealthCheckWorker, ProjectCreationWorker): an unhandled
+    exception raised on a QThread's slot would otherwise abort the whole
+    application instead of surfacing as an error message."""
 
-    finished = pyqtSignal(object)  # CharmmGuiImportResult
+    finished = pyqtSignal(object)  # CharmmGuiExtractResult
 
     def __init__(self, archive_path: str):
         super().__init__()
         self.archive_path = archive_path
 
     def run(self) -> None:
-        self.finished.emit(import_charmm_gui_archive(self.archive_path))
+        try:
+            result = extract_charmm_gui_archive(self.archive_path)
+        except Exception as exc:  # noqa: BLE001 - surface any failure to the UI instead of crashing
+            result = CharmmGuiExtractResult(False, f"Could not import '{self.archive_path}': {exc}")
+        self.finished.emit(result)
 
 
 class AllAtomInputPage(QWizardPage):
@@ -95,6 +106,7 @@ class AllAtomInputPage(QWizardPage):
         )
         self._thread: Optional[QThread] = None
         self._worker: Optional[CharmmGuiImportWorker] = None
+        self._browse_start_dir = ""
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(
@@ -163,12 +175,16 @@ class AllAtomInputPage(QWizardPage):
         self.par_files.list_widget.model().rowsRemoved.connect(self.completeChanged)
 
     def _on_browse_psf(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Select PSF file", "", "PSF files (*.psf);;All files (*)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select PSF file", self._browse_start_dir, "PSF files (*.psf);;All files (*)"
+        )
         if path:
             self.psf_path_edit.setText(path)
 
     def _on_browse_pdb(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Select PDB file", "", "PDB files (*.pdb);;All files (*)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select PDB file", self._browse_start_dir, "PDB files (*.pdb);;All files (*)"
+        )
         if path:
             self.pdb_path_edit.setText(path)
 
@@ -200,19 +216,26 @@ class AllAtomInputPage(QWizardPage):
         self._worker = None
         self.charmm_gui_import_button.setEnabled(True)
 
-    def _on_import_finished(self, result: CharmmGuiImportResult) -> None:
+    def _on_import_finished(self, result: CharmmGuiExtractResult) -> None:
         self.charmm_gui_status_label.setText(result.message)
         if not result.success:
             return
 
-        self.top_files.list_widget.clear()
-        self.top_files.list_widget.addItems(result.top_paths)
-        self.par_files.list_widget.clear()
-        self.par_files.list_widget.addItems(result.par_paths)
-        self.str_files.list_widget.clear()
-        self.str_files.list_widget.addItems(result.str_paths)
-        self.psf_path_edit.setText(result.psf_path)
-        self.pdb_path_edit.setText(result.pdb_path)
+        # Topology/parameter/stream selection is deliberately left to the
+        # user (see app/charmm_gui_import.py) -- but point their Add.../
+        # Browse... dialogs straight at the extracted files instead of a
+        # blank picker, since digging through the archive by hand was the
+        # actual "can't open .tgz on Windows" problem this solves.
+        start_dir = result.toppar_dir or result.extracted_dir
+        self.top_files.set_start_dir(start_dir)
+        self.par_files.set_start_dir(start_dir)
+        self.str_files.set_start_dir(start_dir)
+        self._browse_start_dir = result.extracted_dir
+
+        if result.psf_path:
+            self.psf_path_edit.setText(result.psf_path)
+        if result.pdb_path:
+            self.pdb_path_edit.setText(result.pdb_path)
         if result.box_x is not None:
             self.box_x.setValue(result.box_x)
         if result.box_y is not None:

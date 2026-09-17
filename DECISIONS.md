@@ -2,7 +2,148 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
-## 2026-09-17 — Import a CHARMM-GUI archive (.tgz) directly into the all-atom wizard page
+## 2026-09-18 — HPS/IDR (RESIDCG) validation "errors" are false positives, not a bug in this app or the user's install
+
+Reported directly: validating a generated HPS_CONDENSATE/IDR control file
+against a real installed GENESIS produced 7 warnings --
+`forcefield = RESIDCG` "not in this build's allowed values", every
+`cg_*` [ENERGY] keyword "not a recognized keyword", and a nonsensical
+`gamma_t = 0.01: not in this build's allowed values ['LANGEVIN']`.
+Rather than assume the app's own RESIDCG/HPS templates were wrong (they
+were already verified against real tutorials in earlier sessions), cloned
+the actual GENESIS source (`github.com/genesis-release-r-ccs/genesis`,
+tag `v2.1.6.1` -- matching the "GENESIS 2.1.6" this app's history already
+targets) to read the real Fortran behind `-h ctrl_all`, rather than
+guess. Two distinct, unrelated root causes, confirmed at the source-line
+level:
+
+**1. Real bug in this app's own `app/ctrl_reference.py` parser.**
+`src/atdyn/at_ensemble.fpp`'s `show_ctrl_ensemble` literally prints
+`# gamma_t = 1.0  # thermostat friction (ps-1) in [LANGEVIN]` -- that
+`[LANGEVIN]` documents *which tpcontrol setting this parameter applies
+to*, not gamma_t's own allowed values (gamma_t is a float; `gamma_p`,
+`tau_t`, `tau_p`, `compressibility` have the identical pattern). The
+parser's bracket-list regex used `.search()`, so any `[...]` anywhere in
+a keyword's comment -- not just a comment that *is* one -- got treated as
+that keyword's own enum. Fixed by anchoring the match to the whole
+comment (`^\[...\]$`): a real allowed-value comment in the actual source
+really is bare, e.g. `tpcontrol = NO # [NO,BERENDSEN,BUSSI,LANGEVIN]`.
+Traded off deliberately: a few real enums whose comment has a short
+description before the bracket (e.g. `dispersion_corr`'s
+`# dispersion correction [NONE,Energy,EPress]`) now go unchecked instead
+of checked -- an unchecked keyword is a far smaller cost than an
+actively wrong warning eroding trust in every other warning this
+feature produces. See `tests/test_ctrl_reference.py`'s
+`REAL_ATDYN_ENSEMBLE_AND_ENERGY_CTRL_ALL` fixture, transcribed directly
+from the real source, for the exact reproduction.
+
+**2. Real gap in GENESIS 2.1.6's own `-h ctrl_all` help text, not this
+app's bug.** `show_ctrl_energy` (`src/atdyn/at_energy.fpp`) prints
+`forcefield = CHARMM # [CHARMM,AAGO,CAGO,KBGO,AMBER,GROAMBER,
+GROMARTINI]` and documents no `cg_*` keyword anywhere. But the code that
+actually *reads and validates* a control file, `read_ctrl_energy` (same
+file), checks `forcefield` against the full `ForceFieldTypes` array
+(`src/atdyn/at_enefunc_str.fpp`) -- 10 entries, the last being
+`'RESIDCG   '`, immediately followed by a `!shinobu-edited` comment
+suggesting it was appended after `show_ctrl_energy`'s help text was
+written and never backported there -- and does read every
+`cg_cutoffdist_ele`/`cg_cutoffdist_126`/`cg_pairlistdist_ele`/
+`cg_pairlistdist_126`/`cg_sol_ionic_strength`/`cg_IDR_HPS_epsilon`
+keyword with its own real default (e.g.
+`call read_ctrlfile_real(handle, Section, 'cg_sol_ionic_strength',
+ene_info%cg_sol_ionic_strength)`, default `0.15`). `forcefield = RESIDCG`
+plus these keywords are genuinely valid, working GENESIS 2.1.6 input --
+also independently confirmed by the real, GENESIS-team-maintained
+tutorial 11.1's own `pro.inp` (`genesis_tutorial_materials/
+tutorial-11.1/02_simulation/pro.inp`), which uses exactly this
+combination (`forcefield = RESIDCG`, `cg_pairlistdist_exv = 15.0`,
+`gamma_t = 0.01` -- the identical friction value from this bug report).
+**The user's project and this app's generated control file are correct;
+GENESIS's own `-h ctrl_all` is simply under-documented for RESIDCG.**
+
+Rather than silently drop these specific keywords from the comparison
+(which could hide a real future problem if a later GENESIS version's
+`-h ctrl_all` is fixed and then genuinely does reject one), added
+`_KNOWN_CTRL_ALL_DOC_GAPS` in `app/ctrl_reference.py`: a small, explicitly
+cited table that *annotates* -- doesn't suppress -- the warning for
+exactly `[ENERGY] forcefield = RESIDCG` and the six `cg_*` keywords, so a
+user sees both the warning and the reason it's very likely a false
+positive, consistent with this module's existing "advisory, a human
+reviews" design (see its original 2026-09-10 docstring).
+
+**Action for the user**: no code change is needed on their end -- the
+project should run correctly on their real GENESIS 2.1.6 install despite
+these 7 warnings. If it doesn't actually run, that's a different, new
+problem worth reporting with the real runtime error (not the `-h
+ctrl_all` validation warnings), since validation is advisory and
+`read_ctrl_energy`'s real acceptance behavior is what actually matters.
+
+## 2026-09-17 — CHARMM-GUI import crashed the app; wrong premise, missing exception guard
+
+Reported directly: "the GUI crashed when the archive .tgz was used to
+import." Two separate problems, both real:
+
+**1. Wrong premise about CHARMM-GUI's output.** The entry below this one
+assumed every archive has a `genesis/step*.inp` -- true only when
+GENESIS is explicitly selected as the target program in CHARMM-GUI's
+Input Generator. The user corrected this directly: they use Solution
+Builder, which has no such option, and just want the topology `.rtf`,
+parameter `.prm`, stream `.str` (typically `toppar_water_ions.str`),
+final `.psf`/`.pdb`, and box x/y/z out of the archive. Solution Builder
+doesn't ship any single file that states *which* of its bundled 40+
+`toppar/` files a given system actually needs (that's genuinely
+CHARMM-GUI-internal knowledge this app has no reliable way to recover
+from the archive alone), so rather than guess, `app/charmm_gui_import.py`
+was rewritten around only what's safe to auto-detect:
+- the final prepared system, via the highest-numbered `stepN_input.psf`/
+  `.pdb` pair (CHARMM-GUI's own naming for "this is the finished,
+  solvated/ionized system," vs. `step1_pdbreader`/`step2_orient`/etc.
+  along the way);
+- box size, by reading the `CRYST1` record out of that PDB -- a public,
+  stable field of the PDB format itself (spec v3.3: columns 7-15/16-24/
+  25-33 for a/b/c in Angstroms), not a CHARMM-GUI convention, and this
+  app's own `app/validators.py` already relies on the same fixed-column
+  PDB parsing for `ATOM` records.
+
+Topology/parameter/stream selection is left to the user via the
+existing Add.../Browse... pickers, which now default to the extracted
+`toppar/` folder instead of a blank dialog -- solving the actual,
+literally-stated blocker ("Windows env cannot open .tgz") without
+pretending to know which 2-4 of those 40+ files a specific system
+(protein-only vs. +lipid vs. +ligand, etc.) actually needs.
+`import_charmm_gui_archive()` was renamed `extract_charmm_gui_archive()`
+and its result type to `CharmmGuiExtractResult` to match -- it's an
+extraction + best-effort-detection helper now, not a "read CHARMM-GUI's
+answer" parser.
+
+**2. The actual crash: a missing exception guard.** Auditing
+`CharmmGuiImportWorker.run()` (in `ui/page_all_atom_input.py`) while
+investigating turned up a real bug independent of the above: unlike
+every other worker in this codebase (`HealthCheckWorker`,
+`ProjectCreationWorker`, `DeleteProjectWorker`/`RenameProjectWorker`),
+it called the extraction function with no `try`/`except` around it.
+`run()` executes as a slot on a `QThread`; an unhandled Python exception
+raised there doesn't reach the try/except in the code that started the
+thread the way a same-thread call would -- PyQt5 has no safe default
+recovery path for that and the whole application aborts instead of the
+error surfacing anywhere. Since the previous "genesis/step*.inp-only"
+design meant every real Solution-Builder archive hit some code path,
+this was very likely the actual crash mechanism (whichever specific line
+raised first for that archive), not just a theoretical risk. Fixed by
+wrapping the call in `try`/`except Exception` and emitting a
+`CharmmGuiExtractResult(False, ...)` on failure, matching the pattern
+every other worker already uses. This is now also covered by a test
+(`test_charmm_gui_import_worker_reports_an_unexpected_exception_instead
+_of_raising`) that forces an arbitrary exception through `run()` and
+asserts it does *not* propagate -- a regression here would otherwise
+only show up as a real crash, not a failing assertion someone could miss.
+
+## 2026-09-17 — Import a CHARMM-GUI archive (.tgz) directly into the all-atom wizard page (superseded above)
+
+**The `genesis/step*.inp`-based design below was wrong for this app's
+actual users and was replaced same-day -- see the entry above, which is
+authoritative. Left here for the record of what was tried and why it
+didn't hold up, not as current behavior.**
 
 Reported directly: CHARMM-GUI's download is a .tgz, which Windows
 Explorer can't open (no built-in gzip-tarball support, only .zip), so a
