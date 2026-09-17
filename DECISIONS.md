@@ -2,6 +2,79 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-17 — Import a CHARMM-GUI archive (.tgz) directly into the all-atom wizard page
+
+Reported directly: CHARMM-GUI's download is a .tgz, which Windows
+Explorer can't open (no built-in gzip-tarball support, only .zip), so a
+Windows user had no way to get its contents into the project folder at
+all without a separate unzip tool. Traced this to a wrong premise on my
+part rather than a real WSL requirement: **this app's own Python
+process can extract a .tgz natively** via the stdlib `tarfile` module
+(zlib-backed, no external `tar` binary), so the whole import runs
+Windows-side with zero `WslBridge` involvement -- the same "local,
+no-WSL-needed" shape `app/project_creation.py`'s `source_pdb_path`
+handling already uses (a plain file copy). An earlier draft of this
+routed extraction through `WslBridge`/`wslpath`/`tar` inside WSL; scrapped
+once it was clear that added a whole extra subprocess round-trip to solve
+a problem Python's own standard library already solves directly.
+
+**New `app/charmm_gui_import.py`**: `import_charmm_gui_archive(archive_path)`
+extracts into a fresh `tempfile.mkdtemp()` directory (left for the OS to
+reclaim, same as this app already does nothing to track/clean up a
+user's own manually-browsed source files) using
+`archive.extractall(staging, filter="data")` -- the PEP 706 extraction
+filter (Python 3.11.4+/3.12+, this repo targets 3.12) that rejects
+absolute paths, `..` traversal, device files, etc.; a deliberate defensive
+choice for extracting a file whose contents this app doesn't control,
+even though CHARMM-GUI itself is a trusted source.
+
+**Why the extracted `genesis/step*.inp` is the source of truth, not a
+`toppar/` scan.** Verified against real GENESIS tutorials 6.1/6.2
+(mdgenesis.org/tutorials/genesis_tutorial_6.1_2022/, `.../6.2_2022/`) and
+their own materials
+(`genesis_tutorial_materials/tutorial-6.1/2_min_equil/step6.0_minimization
+.inp`, copied into `tests/fixtures/charmm_gui_step6.0_minimization.inp` as
+a parser test fixture): when GENESIS is selected as the target program in
+CHARMM-GUI's Input Generator, the archive includes a `genesis/`
+subdirectory with ready-made control files (`step6.0_minimization.inp`
+through `step6.6_equilibration.inp`, `step7_production.inp`). Every
+archive also ships CHARMM-GUI's *entire* CHARMM36 `toppar/` library --
+confirmed via `genesis_tutorial_materials/tutorial-6.2/1_setup/toppar/`,
+which has 40+ `.rtf`/`.prm`/`.str` files for one system -- so scanning
+`toppar/` for "plausible" files would either import dozens of irrelevant
+ones or require guessing which subset applies. `genesis/step6.0_
+minimization.inp`'s own `[INPUT]` section already states exactly which
+`topfile`/`parfile`/`strfile`/`psffile`/`pdbfile` this specific system
+needs (CHARMM-GUI computed that when it generated the file), so this
+module reads that file's `[INPUT]` and `[BOUNDARY]` sections with a
+small line-based parser (`_parse_inp_sections`, deliberately not a
+general round-trip parser -- see `app/control_file.py` for this app's
+own writer side) instead of re-deriving the answer. Box size
+(`box_size_x/y/z`) comes from the same file's `[BOUNDARY]` section as
+plain literal numbers CHARMM-GUI already computed -- confirmed present
+in the real fixture content, so no need to parse CHARMM-GUI's separate
+(and not confirmed-format) `sysinfo.dat`.
+
+Referenced relative paths (e.g. `../toppar/top_all36_lipid.rtf`) are
+resolved relative to the `.inp` file's own directory, matching how this
+app's own generated control files and the real tutorial's `run.sh` both
+assume "cd into the directory holding the control file before running
+it." A referenced file that doesn't actually exist in the archive (or an
+`.inp` missing an expected `[INPUT]` key) fails with a specific message
+naming what's wrong, rather than silently proceeding with a partial
+system.
+
+**Wizard wiring**: `ui/page_all_atom_input.py` gets an "Import from
+CHARMM-GUI archive (.tgz)..." button, running on a `QThread` via a new
+`CharmmGuiImportWorker` (extracting a real archive with its full toppar/
+library can take a real amount of time -- must not block the GUI thread
+per CLAUDE.md). On success it populates the same topfile/parfile/
+strfile list widgets, psf/pdb fields, and box x/y/z spinboxes the manual
+file pickers already feed -- the returned paths are plain local
+filesystem paths, so `Project.aa_*_source_paths` and
+`app/project_creation.py`'s existing `copy_all_atom_files()` need no
+changes at all.
+
 ## 2026-09-16 — Delete/Rename project actions on the Dashboard
 
 Requested directly: "Add option to delete the project from GUI, or

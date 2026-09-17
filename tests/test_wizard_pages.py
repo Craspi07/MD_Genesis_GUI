@@ -4,7 +4,8 @@ from ui.page_input import InputPage
 from ui.page_model import ModelPage, InputState
 from ui.page_parameters import ParametersPage
 from ui.page_resources import ResourcesPage
-from ui.page_all_atom_input import AllAtomInputPage
+from ui.page_all_atom_input import AllAtomInputPage, CharmmGuiImportWorker
+from app.charmm_gui_import import CharmmGuiImportResult
 from app.project import ModelType, Engine
 from app.settings import Settings
 
@@ -239,3 +240,78 @@ def test_all_atom_input_page_incomplete_without_box_size():
     page.psf_path_edit.setText("input.psf")
     page.pdb_path_edit.setText("input.pdb")
     assert not page.isComplete()  # box dims default to 0
+
+
+# -- CHARMM-GUI archive import -------------------------------------------------
+def test_charmm_gui_import_worker_emits_result(tmp_path: Path):
+    import tarfile
+
+    src = tmp_path / "src" / "cg"
+    genesis_dir = src / "genesis"
+    genesis_dir.mkdir(parents=True)
+    (genesis_dir / "step6.0_minimization.inp").write_text(
+        "[INPUT]\ntopfile = a.rtf\nparfile = a.prm\npsffile = a.psf\npdbfile = a.pdb\n"
+        "[BOUNDARY]\nbox_size_x = 10\nbox_size_y = 10\nbox_size_z = 10\n"
+    )
+    for name in ("a.rtf", "a.prm", "a.psf", "a.pdb"):
+        (genesis_dir / name).write_text("x\n")
+    archive_path = tmp_path / "cg.tgz"
+    with tarfile.open(archive_path, "w:gz") as tar:
+        tar.add(src, arcname="cg")
+
+    worker = CharmmGuiImportWorker(str(archive_path))
+    results = []
+    worker.finished.connect(results.append)
+    worker.run()
+
+    assert len(results) == 1
+    assert results[0].success
+
+
+def test_on_import_finished_populates_fields_on_success():
+    page = AllAtomInputPage()
+    result = CharmmGuiImportResult(
+        True,
+        "Imported from 'step6.0_minimization.inp'.",
+        top_paths=["/tmp/top_all36_prot.rtf"],
+        par_paths=["/tmp/par_all36m_prot.prm"],
+        str_paths=["/tmp/toppar_water_ions.str"],
+        psf_path="/tmp/step5_input.psf",
+        pdb_path="/tmp/step5_input.pdb",
+        box_x=68.26,
+        box_y=80.24,
+        box_z=66.59,
+    )
+
+    page._on_import_finished(result)
+
+    assert page.top_files.paths() == ["/tmp/top_all36_prot.rtf"]
+    assert page.par_files.paths() == ["/tmp/par_all36m_prot.prm"]
+    assert page.str_files.paths() == ["/tmp/toppar_water_ions.str"]
+    assert page.psf_path_edit.text() == "/tmp/step5_input.psf"
+    assert page.pdb_path_edit.text() == "/tmp/step5_input.pdb"
+    assert page.box_x.value() == 68.26
+    assert page.box_y.value() == 80.24
+    assert page.box_z.value() == 66.59
+    assert page.isComplete()
+
+
+def test_on_import_finished_shows_message_and_leaves_fields_alone_on_failure():
+    page = AllAtomInputPage()
+    page.psf_path_edit.setText("existing.psf")
+
+    page._on_import_finished(CharmmGuiImportResult(False, "No genesis/step*.inp found."))
+
+    assert page.charmm_gui_status_label.text() == "No genesis/step*.inp found."
+    assert page.psf_path_edit.text() == "existing.psf"
+
+
+def test_import_button_does_nothing_when_dialog_cancelled(monkeypatch):
+    page = AllAtomInputPage()
+    monkeypatch.setattr(
+        "PyQt5.QtWidgets.QFileDialog.getOpenFileName", staticmethod(lambda *a, **k: ("", ""))
+    )
+
+    page._on_import_charmm_gui()
+
+    assert page._thread is None

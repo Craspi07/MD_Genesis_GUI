@@ -171,6 +171,18 @@ keywords instead of RESIDCG's.
       (no new checkbox) before every all-atom project's main `run.inp`
       is generated. See DECISIONS.md for the full diff against the real
       reference, including what already matched with no changes needed.
+- [x] **Import a CHARMM-GUI archive (.tgz) directly** (2026-09-17) --
+      Windows can't open a .tgz natively, so this was a real workflow
+      blocker for the most common way to prepare an all-atom system.
+      New `app/charmm_gui_import.py` extracts the archive with Python's
+      own `tarfile` (no WSL involved -- this needed a decompressor, not
+      a Linux shell), finds the `genesis/step*.inp` CHARMM-GUI writes
+      when GENESIS is selected as the target program, and reads that
+      file's own `[INPUT]`/`[BOUNDARY]` sections for exactly which
+      topfile/parfile/strfile/psffile/pdbfile and box size this system
+      needs (confirmed against real GENESIS tutorials 6.1/6.2 and their
+      materials -- see DECISIONS.md). Wired into the All-Atom Files
+      wizard page as an "Import from CHARMM-GUI archive..." button.
 - [ ] AMBER (`prmtopfile`/`ambcrdfile`) and multi-chain/homo-oligomer AA
       setup (N copies of one prepared chain) -- documented in the User
       Guide (Ch. 4.1.2) but not implemented; homo-oligomer AA setup

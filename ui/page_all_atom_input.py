@@ -13,8 +13,9 @@ a real prepared system).
 """
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
+from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QWizardPage,
     QVBoxLayout,
@@ -28,6 +29,8 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QWidget,
 )
+
+from app.charmm_gui_import import CharmmGuiImportResult, import_charmm_gui_archive
 
 
 class _FileListWidget(QWidget):
@@ -67,6 +70,22 @@ class _FileListWidget(QWidget):
         return [self.list_widget.item(i).text() for i in range(self.list_widget.count())]
 
 
+class CharmmGuiImportWorker(QObject):
+    """Runs import_charmm_gui_archive() off the GUI thread -- extracting a
+    real CHARMM-GUI archive (which can bundle its whole toppar/ library,
+    tens of MB) shouldn't block the UI for the ~100ms budget CLAUDE.md
+    sets."""
+
+    finished = pyqtSignal(object)  # CharmmGuiImportResult
+
+    def __init__(self, archive_path: str):
+        super().__init__()
+        self.archive_path = archive_path
+
+    def run(self) -> None:
+        self.finished.emit(import_charmm_gui_archive(self.archive_path))
+
+
 class AllAtomInputPage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -74,11 +93,23 @@ class AllAtomInputPage(QWizardPage):
         self.setSubTitle(
             "Point to the already-prepared CHARMM system (from CHARMM-GUI, VMD/PSFGEN, or CHARMM)."
         )
+        self._thread: Optional[QThread] = None
+        self._worker: Optional[CharmmGuiImportWorker] = None
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(
             "GENESIS never builds atomistic systems itself -- these files must already exist."
         ))
+
+        import_row = QHBoxLayout()
+        self.charmm_gui_import_button = QPushButton("Import from CHARMM-GUI archive (.tgz)...")
+        self.charmm_gui_import_button.clicked.connect(self._on_import_charmm_gui)
+        import_row.addWidget(self.charmm_gui_import_button)
+        import_row.addStretch(1)
+        layout.addLayout(import_row)
+        self.charmm_gui_status_label = QLabel("")
+        self.charmm_gui_status_label.setWordWrap(True)
+        layout.addWidget(self.charmm_gui_status_label)
 
         form = QFormLayout()
         layout.addLayout(form)
@@ -140,6 +171,54 @@ class AllAtomInputPage(QWizardPage):
         path, _ = QFileDialog.getOpenFileName(self, "Select PDB file", "", "PDB files (*.pdb);;All files (*)")
         if path:
             self.pdb_path_edit.setText(path)
+
+    def _on_import_charmm_gui(self) -> None:
+        if self._thread is not None:
+            return
+        archive_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select CHARMM-GUI archive",
+            "",
+            "CHARMM-GUI archive (*.tgz *.tar.gz);;All files (*)",
+        )
+        if not archive_path:
+            return
+
+        self.charmm_gui_import_button.setEnabled(False)
+        self.charmm_gui_status_label.setText("Extracting and reading the archive...")
+        self._thread = QThread(self)
+        self._worker = CharmmGuiImportWorker(archive_path)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.finished.connect(self._on_import_finished)
+        self._worker.finished.connect(self._thread.quit)
+        self._thread.finished.connect(self._cleanup_import_thread)
+        self._thread.start()
+
+    def _cleanup_import_thread(self) -> None:
+        self._thread = None
+        self._worker = None
+        self.charmm_gui_import_button.setEnabled(True)
+
+    def _on_import_finished(self, result: CharmmGuiImportResult) -> None:
+        self.charmm_gui_status_label.setText(result.message)
+        if not result.success:
+            return
+
+        self.top_files.list_widget.clear()
+        self.top_files.list_widget.addItems(result.top_paths)
+        self.par_files.list_widget.clear()
+        self.par_files.list_widget.addItems(result.par_paths)
+        self.str_files.list_widget.clear()
+        self.str_files.list_widget.addItems(result.str_paths)
+        self.psf_path_edit.setText(result.psf_path)
+        self.pdb_path_edit.setText(result.pdb_path)
+        if result.box_x is not None:
+            self.box_x.setValue(result.box_x)
+        if result.box_y is not None:
+            self.box_y.setValue(result.box_y)
+        if result.box_z is not None:
+            self.box_z.setValue(result.box_z)
 
     def isComplete(self) -> bool:
         return (
