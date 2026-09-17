@@ -213,6 +213,30 @@ def run_cg_tool_pipeline(
     log_parts: List[str] = []
     cd = f"cd {project.directory} && "
 
+    # genesis_cg_tool's .top #includes ./param/*.itp relative to the run
+    # directory. This must happen before any step that *reads* a .top
+    # file back (duplication_generator.jl, for a condensate) resolves
+    # those includes -- not just before generate_project_control_file
+    # runs. A real run against an installed GENESIS surfaced this: the
+    # structure-builder step only *writes* the .top and doesn't need
+    # param/ yet, but duplication_generator.jl's read_grotop() opens it
+    # right after, and failed with "SystemError: opening file
+    # 'param/pair_energy_MJ_96.itp': No such file or directory" because
+    # this copy used to run only at the very end. See DECISIONS.md.
+    param_result = copy_cg_tool_param(bridge, project)
+    log_parts.append(f"$ {_param_copy_command(project)}")
+    if param_result.stdout:
+        log_parts.append(param_result.stdout)
+    if not param_result.ok:
+        log_text = "\n".join(log_parts)
+        (directory / "cgtool.log").write_text(log_text)
+        return CreationResult(
+            False,
+            "Could not copy genesis_cg_tool/param into the project directory "
+            "(needed for the generated .top file's ./param/*.itp includes).",
+            log_text,
+        )
+
     for step in commands:
         if step.local_step:
             log_parts.append(f"$ (local) {step.description}")
@@ -268,23 +292,6 @@ def run_cg_tool_pipeline(
             # can't pick up the wrong file.
             (directory / single_gro_name).unlink(missing_ok=True)
             log_parts.append(f"$ (local) removed {single_gro_name}")
-
-    # genesis_cg_tool's .top #includes ./param/*.itp relative to the run
-    # directory -- copy the param/ directory alongside it or GENESIS can't
-    # resolve those includes. See DECISIONS.md.
-    param_result = copy_cg_tool_param(bridge, project)
-    log_parts.append(f"$ {_param_copy_command(project)}")
-    if param_result.stdout:
-        log_parts.append(param_result.stdout)
-    if not param_result.ok:
-        log_text = "\n".join(log_parts)
-        (directory / "cgtool.log").write_text(log_text)
-        return CreationResult(
-            False,
-            "Could not copy genesis_cg_tool/param into the project directory "
-            "(needed for the generated .top file's ./param/*.itp includes).",
-            log_text,
-        )
 
     log_text = "\n".join(log_parts)
     (directory / "cgtool.log").write_text(log_text)

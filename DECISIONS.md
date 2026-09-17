@@ -2,6 +2,47 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-18 — HPS_CONDENSATE project creation failed: param/ copied too late for duplication_generator.jl
+
+Reported directly: creating an HPS_CONDENSATE (IDR/FUS-style) project
+with `n_copies > 1` failed with "CG-tool step failed: Build an artificial
+IDR structure and CG topology from the sequence (exit code 1)" -- but the
+user's own `cgtool.log` (asked for and provided) showed the *structure-
+builder* step actually succeeded; the real failure was the next step,
+`duplication_generator.jl`, crashing with a Julia `SystemError: opening
+file "param/pair_energy_MJ_96.itp": No such file or directory`.
+
+Root cause: `run_cg_tool_pipeline()` (`app/project_creation.py`) called
+`copy_cg_tool_param()` -- which copies `~/genesis_cg_tool/param/` into
+the project directory, needed because every generated `.top` file
+`#include`s `./param/*.itp` relative to the run directory -- only at the
+very end of the pipeline, after the condensate-replication step. That
+was fine for the *non-condensate* path (nothing reads the `.top` back
+until `generate_project_control_file`/GENESIS itself runs, both later),
+but for `n_copies > 1`, `duplication_generator.jl` reads the just-written
+`.top` back via `read_grotop()` (to replicate it) as part of the same
+pipeline run, *before* the end-of-pipeline param copy had ever happened
+-- so its `#include`d `param/pair_energy_MJ_96.itp` genuinely didn't
+exist yet on disk.
+
+Fixed by moving the `copy_cg_tool_param()` call to the very start of
+`run_cg_tool_pipeline()`, before any genesis_cg_tool command runs at
+all (not just before the duplication step specifically) -- simplest
+correct fix, since nothing downstream can be harmed by param/ existing
+earlier than strictly needed, and it removes the whole class of "which
+step reads the .top back" reasoning entirely.
+`tests/test_project_creation.py::test_run_cg_tool_pipeline_reports_
+failure_when_julia_missing` needed updating to match: it now needs a
+real (fake) `~/genesis_cg_tool/param/` to exist for the param-copy step
+to succeed before the julia-missing failure it actually tests for is
+reached, and its `project.directory` was changed from a literal
+`"~/genesis_projects/myproj"` to a real tmp path -- the fake WSL bridge
+runs real bash, so the old literal `~` would have expanded against the
+actual test-runner's home directory once the param-copy command started
+running earlier in the pipeline (this only stayed invisible so far
+because that command previously never ran in this test at all, the
+julia failure short-circuiting the pipeline before reaching it).
+
 ## 2026-09-18 — HPS/IDR (RESIDCG) validation "errors" are false positives, not a bug in this app or the user's install
 
 Reported directly: validating a generated HPS_CONDENSATE/IDR control file
