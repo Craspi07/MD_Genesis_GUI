@@ -2,6 +2,82 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-18 — HPS/IDR (RESIDCG) validation "errors" are false positives, not a bug in this app or the user's install
+
+Reported directly: validating a generated HPS_CONDENSATE/IDR control file
+against a real installed GENESIS produced 7 warnings --
+`forcefield = RESIDCG` "not in this build's allowed values", every
+`cg_*` [ENERGY] keyword "not a recognized keyword", and a nonsensical
+`gamma_t = 0.01: not in this build's allowed values ['LANGEVIN']`.
+Rather than assume the app's own RESIDCG/HPS templates were wrong (they
+were already verified against real tutorials in earlier sessions), cloned
+the actual GENESIS source (`github.com/genesis-release-r-ccs/genesis`,
+tag `v2.1.6.1` -- matching the "GENESIS 2.1.6" this app's history already
+targets) to read the real Fortran behind `-h ctrl_all`, rather than
+guess. Two distinct, unrelated root causes, confirmed at the source-line
+level:
+
+**1. Real bug in this app's own `app/ctrl_reference.py` parser.**
+`src/atdyn/at_ensemble.fpp`'s `show_ctrl_ensemble` literally prints
+`# gamma_t = 1.0  # thermostat friction (ps-1) in [LANGEVIN]` -- that
+`[LANGEVIN]` documents *which tpcontrol setting this parameter applies
+to*, not gamma_t's own allowed values (gamma_t is a float; `gamma_p`,
+`tau_t`, `tau_p`, `compressibility` have the identical pattern). The
+parser's bracket-list regex used `.search()`, so any `[...]` anywhere in
+a keyword's comment -- not just a comment that *is* one -- got treated as
+that keyword's own enum. Fixed by anchoring the match to the whole
+comment (`^\[...\]$`): a real allowed-value comment in the actual source
+really is bare, e.g. `tpcontrol = NO # [NO,BERENDSEN,BUSSI,LANGEVIN]`.
+Traded off deliberately: a few real enums whose comment has a short
+description before the bracket (e.g. `dispersion_corr`'s
+`# dispersion correction [NONE,Energy,EPress]`) now go unchecked instead
+of checked -- an unchecked keyword is a far smaller cost than an
+actively wrong warning eroding trust in every other warning this
+feature produces. See `tests/test_ctrl_reference.py`'s
+`REAL_ATDYN_ENSEMBLE_AND_ENERGY_CTRL_ALL` fixture, transcribed directly
+from the real source, for the exact reproduction.
+
+**2. Real gap in GENESIS 2.1.6's own `-h ctrl_all` help text, not this
+app's bug.** `show_ctrl_energy` (`src/atdyn/at_energy.fpp`) prints
+`forcefield = CHARMM # [CHARMM,AAGO,CAGO,KBGO,AMBER,GROAMBER,
+GROMARTINI]` and documents no `cg_*` keyword anywhere. But the code that
+actually *reads and validates* a control file, `read_ctrl_energy` (same
+file), checks `forcefield` against the full `ForceFieldTypes` array
+(`src/atdyn/at_enefunc_str.fpp`) -- 10 entries, the last being
+`'RESIDCG   '`, immediately followed by a `!shinobu-edited` comment
+suggesting it was appended after `show_ctrl_energy`'s help text was
+written and never backported there -- and does read every
+`cg_cutoffdist_ele`/`cg_cutoffdist_126`/`cg_pairlistdist_ele`/
+`cg_pairlistdist_126`/`cg_sol_ionic_strength`/`cg_IDR_HPS_epsilon`
+keyword with its own real default (e.g.
+`call read_ctrlfile_real(handle, Section, 'cg_sol_ionic_strength',
+ene_info%cg_sol_ionic_strength)`, default `0.15`). `forcefield = RESIDCG`
+plus these keywords are genuinely valid, working GENESIS 2.1.6 input --
+also independently confirmed by the real, GENESIS-team-maintained
+tutorial 11.1's own `pro.inp` (`genesis_tutorial_materials/
+tutorial-11.1/02_simulation/pro.inp`), which uses exactly this
+combination (`forcefield = RESIDCG`, `cg_pairlistdist_exv = 15.0`,
+`gamma_t = 0.01` -- the identical friction value from this bug report).
+**The user's project and this app's generated control file are correct;
+GENESIS's own `-h ctrl_all` is simply under-documented for RESIDCG.**
+
+Rather than silently drop these specific keywords from the comparison
+(which could hide a real future problem if a later GENESIS version's
+`-h ctrl_all` is fixed and then genuinely does reject one), added
+`_KNOWN_CTRL_ALL_DOC_GAPS` in `app/ctrl_reference.py`: a small, explicitly
+cited table that *annotates* -- doesn't suppress -- the warning for
+exactly `[ENERGY] forcefield = RESIDCG` and the six `cg_*` keywords, so a
+user sees both the warning and the reason it's very likely a false
+positive, consistent with this module's existing "advisory, a human
+reviews" design (see its original 2026-09-10 docstring).
+
+**Action for the user**: no code change is needed on their end -- the
+project should run correctly on their real GENESIS 2.1.6 install despite
+these 7 warnings. If it doesn't actually run, that's a different, new
+problem worth reporting with the real runtime error (not the `-h
+ctrl_all` validation warnings), since validation is advisory and
+`read_ctrl_energy`'s real acceptance behavior is what actually matters.
+
 ## 2026-09-17 — CHARMM-GUI import crashed the app; wrong premise, missing exception guard
 
 Reported directly: "the GUI crashed when the archive .tgz was used to

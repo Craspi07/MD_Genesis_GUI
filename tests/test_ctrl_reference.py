@@ -108,6 +108,81 @@ def test_our_own_rendered_cgdyn_control_file_passes_against_real_reference():
     assert integrator_warnings == []
 
 
+# Real `atdyn -h ctrl_all` output, transcribed directly from GENESIS
+# 2.1.6.1's own source (github.com/genesis-release-r-ccs/genesis,
+# src/atdyn/at_ensemble.fpp's show_ctrl_ensemble and
+# src/atdyn/at_energy.fpp's show_ctrl_energy, 'md' run_mode, show_all=
+# true) -- see DECISIONS.md and app/ctrl_reference.py's module docstring
+# for the two false-positive bugs this reproduces.
+REAL_ATDYN_ENSEMBLE_AND_ENERGY_CTRL_ALL = """
+[ENSEMBLE]
+ensemble      = NVE       # [NVE,NVT,NPT,NPAT,NPgT]
+tpcontrol     = NO        # [NO,BERENDSEN,BUSSI,LANGEVIN]
+# temperature   = 298.15    # initial and target temperature (K)
+# pressure      = 1.0       # target pressure (atm)
+# gamma         = 0.0       # target surface tension (dyn/cm)
+# tau_t         = 5.0       # temperature coupling time (ps) in [BERENDSEN,NOSE-HOOVER,BUSSI]
+# tau_p         = 5.0       # pressure coupling time (ps)    in [BERENDSEN,BUSSI]
+# compressibility = 4.63e-5 # compressibility (atm-1) in [BERENDSEN]
+# gamma_t       = 1.0       # thermostat friction (ps-1) in [LANGEVIN]
+# gamma_p       = 0.1       # barostat friction (ps-1)   in [LANGEVIN]
+# isotropy      = ISO       # [ISO,SEMI-ISO,ANISO,XY-FIXED]
+
+[ENERGY]
+forcefield       = CHARMM  # [CHARMM,AAGO,CAGO,KBGO,AMBER,GROAMBER,GROMARTINI]
+electrostatic    = PME     # [CUTOFF,PME]
+switchdist       = 10.0    # switch distance
+cutoffdist       = 12.0    # cutoff distance
+pairlistdist     = 13.5    # pair-list distance
+"""
+
+
+def test_parse_ctrl_all_does_not_treat_a_cross_reference_bracket_as_the_keywords_own_enum():
+    # The real GENESIS bug this guards against: gamma_t's own comment
+    # documents which *tpcontrol* value it applies to ("in [LANGEVIN]"),
+    # not gamma_t's own allowed values -- gamma_t is a float.
+    ref = parse_ctrl_all(REAL_ATDYN_ENSEMBLE_AND_ENERGY_CTRL_ALL)
+    assert ref["ENSEMBLE"]["gamma_t"] is None
+    assert ref["ENSEMBLE"]["gamma_p"] is None
+    assert ref["ENSEMBLE"]["tau_t"] is None
+
+
+def test_parse_ctrl_all_still_extracts_a_bare_bracket_enum():
+    ref = parse_ctrl_all(REAL_ATDYN_ENSEMBLE_AND_ENERGY_CTRL_ALL)
+    assert ref["ENSEMBLE"]["tpcontrol"] == ["NO", "BERENDSEN", "BUSSI", "LANGEVIN"]
+    assert ref["ENERGY"]["forcefield"] == ["CHARMM", "AAGO", "CAGO", "KBGO", "AMBER", "GROAMBER", "GROMARTINI"]
+
+
+def test_validate_control_text_no_longer_flags_gamma_t_against_the_wrong_enum():
+    text = "[ENSEMBLE]\nensemble = NVT\ntpcontrol = LANGEVIN\ngamma_t = 0.01\n"
+    ref = parse_ctrl_all(REAL_ATDYN_ENSEMBLE_AND_ENERGY_CTRL_ALL)
+    warnings = validate_control_text(text, ref)
+    assert not any("gamma_t" in w for w in warnings)
+
+
+def test_validate_control_text_annotates_the_known_residcg_doc_gap():
+    # forcefield=RESIDCG is real, valid GENESIS 2.1.6 input (confirmed
+    # against ForceFieldTypes/read_ctrl_energy in the real source, and
+    # against tutorial 11.1's own pro.inp) -- atdyn's -h ctrl_all just
+    # never had its forcefield comment updated to mention it.
+    text = "[ENERGY]\nforcefield = RESIDCG\n"
+    ref = parse_ctrl_all(REAL_ATDYN_ENSEMBLE_AND_ENERGY_CTRL_ALL)
+    warnings = validate_control_text(text, ref)
+    assert len(warnings) == 1
+    assert "not in this build's allowed values" in warnings[0]
+    assert "false positive" in warnings[0]
+
+
+def test_validate_control_text_annotates_the_known_cg_keyword_doc_gap():
+    text = "[ENERGY]\nforcefield = RESIDCG\ncg_sol_ionic_strength = 0.15\n"
+    ref = parse_ctrl_all(REAL_ATDYN_ENSEMBLE_AND_ENERGY_CTRL_ALL)
+    warnings = validate_control_text(text, ref)
+    cg_warnings = [w for w in warnings if "cg_sol_ionic_strength" in w]
+    assert len(cg_warnings) == 1
+    assert "not a recognized keyword" in cg_warnings[0]
+    assert "false positive" in cg_warnings[0]
+
+
 def test_validate_against_installed_genesis_reports_fetch_failure():
     # fake_wsl proxies to real bash; "not-a-real-engine" isn't installed
     # here, so the fetch itself fails -- must degrade to a warning, not
