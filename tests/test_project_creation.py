@@ -86,9 +86,24 @@ def test_build_cg_commands_sequence_mode_uses_structure_builder():
     assert "p.fasta" in commands[0].command
 
 
-def test_run_cg_tool_pipeline_reports_failure_when_julia_missing(tmp_path: Path):
+def test_run_cg_tool_pipeline_reports_failure_when_julia_missing(tmp_path: Path, monkeypatch):
+    # copy_cg_tool_param() now runs before any genesis_cg_tool step (see
+    # DECISIONS.md, 2026-09-18 -- duplication_generator.jl needs param/
+    # in place *before* it re-reads the .top file, not just before
+    # generate_project_control_file), so it must succeed here too for
+    # this test to actually exercise the julia-missing failure rather
+    # than failing earlier on a missing fake ~/genesis_cg_tool/param.
+    fake_home = tmp_path / "home"
+    (fake_home / "genesis_cg_tool" / "param").mkdir(parents=True)
+    (fake_home / "genesis_cg_tool" / "param" / "example.itp").write_text("; fake param\n")
+    monkeypatch.setenv("HOME", str(fake_home))
+
     project_dir = tmp_path / "proj"
-    project = Project(name="myproj", directory="~/genesis_projects/myproj", input_mode=InputMode.PDB)
+    # a real path, not "~/genesis_projects/myproj" -- the param-copy
+    # command's destination is project.directory, and the fake bridge
+    # runs real bash, so a literal "~" would touch the real test-runner's
+    # home directory otherwise.
+    project = Project(name="myproj", directory=str(project_dir), input_mode=InputMode.PDB)
     source_pdb = tmp_path / "source.pdb"
     source_pdb.write_text("ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00\n")
     create_project_files(project, str(project_dir), source_pdb_path=str(source_pdb))
@@ -101,6 +116,7 @@ def test_run_cg_tool_pipeline_reports_failure_when_julia_missing(tmp_path: Path)
     assert not result.success
     assert (project_dir / "cgtool.log").exists()
     assert "julia" in result.log or "not found" in result.log.lower()
+    assert (project_dir / "param" / "example.itp").exists()
 
 
 def test_run_cg_tool_pipeline_reports_failure_for_sequence_mode_too(tmp_path: Path):
