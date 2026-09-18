@@ -2,6 +2,49 @@
 
 Running log of choices made during development and why. Newest entries at the top.
 
+## 2026-09-18 — HPS_CONDENSATE benchmark/run failed: duplicated .gro never got a matching .top
+
+Reported directly: benchmarking (and, by the same mechanism, a real run)
+of an HPS_CONDENSATE project failed with GENESIS's own
+`Define_Molecules> ATOM in GROTOP = 163` vs. `ATOM in GROCRD = 8150`
+(163 x 50 = 8150, matching the project's 50 copies) -- a real,
+self-explanatory atom-count mismatch between the topology and
+coordinate files, not a validation false positive this time.
+
+Root cause, confirmed by reading the real `duplication_generator.jl`
+source (`genesis-release-r-ccs/genesis_cg_tool`): it opens the original
+`.top` only to read it (`read_grotop`) and **never writes a `.top` file
+at all** -- it only ever writes the replicated `.gro`
+(`@sprintf("%s_mul_%d_%d_%d_n_%d.gro", ...)`). The original single-copy
+`.top` file (genesis_cg_tool's own `write_grotop()`, `src/lib/
+parser_top.jl`, always writes `[ molecules ] \n<system_name>  1 \n\n`)
+is left completely untouched. GENESIS's own topology reader multiplies
+each moleculetype's atom count by that `[ molecules ]` count to get the
+system's total atom count (confirmed in the same `parser_top.jl`:
+`mol_count = parse(Int, words[2])` then `for i = 1:mol_count` replicates
+the moleculetype) -- so a single-copy `.top` paired with an n-copy `.gro`
+will always disagree on atom count, for every condensate project, not
+just this one.
+
+This app's own pipeline never edited that count. Fixed in
+`app/project_creation.py`: after `duplication_generator.jl` succeeds,
+`_set_top_molecule_count()` rewrites the `.top` file's `[ molecules ]`
+line in place (`<system_name>  1` -> `<system_name>  <n_copies>`) via a
+regex anchored to the exact shape `write_grotop()` produces, matched
+once; if the shape isn't found (a `.top` this app didn't generate,
+or a future genesis_cg_tool version writing something different), the
+pipeline fails with a specific, named error rather than silently leaving
+a mismatched file in place for GENESIS to reject later with a much less
+informative message.
+
+**A project created before this fix has a `.top` file stuck at `1`
+copy and needs a one-line manual fix, not a full recreate**: open the
+project's `<name>_cg.top` in the Files tab (or any text editor via the
+project's folder), find `[ molecules ]`, and change the count on the
+line below it (currently `1`) to the project's actual copy count, then
+retry the run/benchmark. Recreating the project also works but re-runs
+the whole CG-tool pipeline unnecessarily.
+
 ## 2026-09-18 — HPS_CONDENSATE project creation failed: param/ copied too late for duplication_generator.jl
 
 Reported directly: creating an HPS_CONDENSATE (IDR/FUS-style) project

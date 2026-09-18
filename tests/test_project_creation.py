@@ -11,6 +11,7 @@ from app.project_creation import (
     local_directory_for,
     local_projects_root_for,
     copy_cg_tool_param,
+    _set_top_molecule_count,
 )
 from app.settings import Settings
 from app.wsl import CommandResult, WslBridge
@@ -165,9 +166,68 @@ def test_run_cg_tool_pipeline_condensate_renames_and_replicates(tmp_path: Path, 
     assert result.success
     assert "duplication_generator.jl" in result.log
     assert (project_dir / "myidr_cg.top").exists()
+    # duplication_generator.jl only ever writes a replicated .gro (real
+    # genesis_cg_tool source has no write_top call at all) -- the .top's
+    # own [ molecules ] count must be bumped to n_copies afterward or a
+    # real GENESIS run rejects it with "Define_Molecules> ... Number of
+    # atoms differs." (see DECISIONS.md, 2026-09-18).
+    assert "MOL 3" in (project_dir / "myidr_cg.top").read_text()
     # the temporary rename target must be cleaned up, not left as a second
     # file matching "myidr*.gro" that a later glob could pick up by mistake
     assert not (project_dir / "myidr_single.gro").exists()
+
+
+def test_run_cg_tool_pipeline_condensate_fails_clearly_when_top_format_unrecognized(
+    tmp_path: Path, monkeypatch
+):
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    project = Project(
+        name="myidr",
+        directory=str(project_dir),
+        input_mode=InputMode.SEQUENCE,
+        sequence="MKT",
+        model_type=ModelType.HPS_CONDENSATE,
+    )
+    project.parameters.n_copies = 3
+    create_project_files(project, str(project_dir))
+    # no [ molecules ] section at all -- not the shape genesis_cg_tool's
+    # own write_grotop() ever produces
+    (project_dir / "myidr_cg.top").write_text("; nothing usable here\n")
+    (project_dir / "myidr_cg.gro").write_text("title\n0\n0.0 0.0 0.0\n")
+
+    bridge = _bridge()
+    monkeypatch.setattr(bridge, "run", lambda *a, **k: CommandResult(0, "", ""))
+
+    result = run_cg_tool_pipeline(bridge, project, str(project_dir))
+
+    assert not result.success
+    assert "molecules" in result.message.lower()
+
+
+def test_set_top_molecule_count_updates_the_real_genesis_cg_tool_format(tmp_path: Path):
+    # Exact shape genesis_cg_tool's write_grotop() writes (src/lib/
+    # parser_top.jl: '"[ molecules ] \n"' then '"<system_name>  1 \n\n"').
+    top_path = tmp_path / "sys.top"
+    top_path.write_text(
+        "[ system ] \nsys \n\n[ molecules ] \nsys  1 \n\n; [ cg_ele_chain_pairs ] \n"
+    )
+
+    assert _set_top_molecule_count(top_path, 50) is True
+
+    text = top_path.read_text()
+    assert "[ molecules ] \nsys  50" in text
+    # nothing else in the file should move
+    assert "[ system ] \nsys \n\n" in text
+
+
+def test_set_top_molecule_count_returns_false_when_section_missing(tmp_path: Path):
+    top_path = tmp_path / "sys.top"
+    original = "; no molecules section here at all\n"
+    top_path.write_text(original)
+
+    assert _set_top_molecule_count(top_path, 50) is False
+    assert top_path.read_text() == original
 
 
 def test_copy_cg_tool_param_succeeds_when_source_exists(tmp_path: Path, monkeypatch):
